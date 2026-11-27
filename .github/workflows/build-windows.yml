@@ -24,6 +24,8 @@ jobs:
       - name: Validate JavaScript
         run: |
           node --check desktop/app.js
+          node --check desktop/main.cjs
+          node --check desktop/preload.cjs
           node --check server/server.cjs
       - name: Build Windows installer
         run: npm run build
