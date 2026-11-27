@@ -14,7 +14,7 @@ function connected(v){$('apiState').textContent=v?'● API connected':'● API n
 function saveKey(k){S.key=k;if($('apiKey'))$('apiKey').value=k;localStorage.setItem('abhi_pw_key',k);localStorage.setItem('abhi_pw_expiry',String(Date.now()+86400000));connected(true)}
 function keyModal(show){$('keyModal').classList.toggle('hidden',!show)}
 async function generateKey(){try{$('keyStatus').textContent='Generating key link…';const d=await api('/auth/generate?server=1','');const link=d?.keyUrl||d?.key_url||findUrl(d,['keyUrl','key_url']);if(!link)throw Error('The API did not return a key link');window.open(link,'_blank','noopener');$('keyStatus').textContent='Complete activation in the browser, then paste your API key here.'}catch(e){$('keyStatus').textContent=e.message}}
-async function verifyKey(){const k=$('apiKey').value.trim();if(!k)return $('keyStatus').textContent='Enter an API key.';try{$('keyStatus').textContent='Checking API key…';try{await api('/batch/'+B1+'/subject',k)}catch{const r=await api('/auth/activate?key='+enc(k),'',false);if(!r?.success)throw Error(r?.message||'Key activation failed');await api('/batch/'+B1+'/subject',k)}saveKey(k);keyModal(false);toast('API key connected');await loadSubjects()}catch(e){$('keyStatus').textContent=e.message}}
+async function verifyKey(){const k=$('apiKey').value.trim();if(!k)return $('keyStatus').textContent='Enter an API key.';try{$('keyStatus').textContent='Checking API key…';let activeBatch=B1;try{const savedBatch=JSON.parse(localStorage.getItem('abhi_pw_active_batch')||'null');if(savedBatch?.id)activeBatch=savedBatch.id}catch{}try{await api('/batch/'+enc(activeBatch)+'/subject',k)}catch{const r=await api('/auth/activate?key='+enc(k),'',false);if(!r?.success)throw Error(r?.message||'Key activation failed');await api('/batch/'+enc(activeBatch)+'/subject',k)}saveKey(k);keyModal(false);toast('API key connected');await loadSubjects()}catch(e){$('keyStatus').textContent=e.message}}
 function loadSaved(){try{S.saved=JSON.parse(localStorage.getItem('abhi_pw_saved_batches')||'[]')}catch{S.saved=[]}}
 function saveSaved(){localStorage.setItem('abhi_pw_saved_batches',JSON.stringify(S.saved))}
 function batchCard(b,small=false){return '<article class="batch" data-batch="'+esc(b.id)+'"><div class="cover">'+(b.image?'<img src="'+esc(b.image)+'">':'▤')+'</div><b>'+esc(b.name)+'</b><p>'+esc([b.language,b.className].filter(Boolean).join(' · ')||'Study batch')+'</p><div class="cardFoot"><span>Open batch →</span><button class="starBatch" data-save="'+esc(b.id)+'">'+(S.saved.some(x=>x.id===b.id)?'★ Saved':'☆ Save')+'</button></div></article>'}
@@ -99,10 +99,11 @@ async function searchBatches(reset=true){
   const start=S.page+1;
   let reported=S.totalPages||50, scanned=0, found=[];
   let next=start;
-  while(next<=reported&&scanned<(q?reported:8)){
+  while(next<=reported&&scanned<8){
    const groupEnd=Math.min(next+1,reported,start+(q?reported:8)-1);
    const pages=await Promise.all(Array.from({length:groupEnd-next+1},(_,i)=>next+i).map(async p=>{
-    const d=await api('/batch/search/v2?cohortId=635b83410a47c70011ca5ffb&exam=UPSC&page='+p,S.key,false);
+    const searchUrl='/batch/search/v2?cohortId=635b83410a47c70011ca5ffb&exam=UPSC&page='+p+(q?'&keyword='+enc(q):'');
+    const d=await api(searchUrl,S.key,false);
     return {page:p,data:d,items:normalizeBatchResponse(d),total:extractTotalPages(d)};
    }));
    let stop=false;
