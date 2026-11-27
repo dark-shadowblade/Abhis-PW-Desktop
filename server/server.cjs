@@ -71,6 +71,15 @@ function startServer() {
             res.writeHead(upstream.status, { 'content-type': 'text/plain' });
             return res.end(message || 'CDN range request failed');
           }
+          const rangeInfo = /^bytes\\s+(\\d+)-(\\d+)\\/(\\d+)$/i.exec(upstream.headers.get('content-range') || '');
+          if (!rangeInfo) throw new Error('CDN returned an invalid Content-Range');
+          const rangeStart = Number(rangeInfo[1]);
+          const rangeEnd = Number(rangeInfo[2]);
+          const totalLength = Number(rangeInfo[3]);
+          if (rangeStart !== start || rangeEnd < rangeStart || rangeEnd > end ||
+              rangeEnd >= totalLength || !Number.isSafeInteger(totalLength)) {
+            throw new Error('CDN returned an unexpected byte range');
+          }
           const headers = {
             'content-type': upstream.headers.get('content-type') || 'video/mp4',
             'accept-ranges': 'bytes',
