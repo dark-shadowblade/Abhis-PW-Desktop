@@ -60,7 +60,7 @@ async function createWindow() {
         total: item.getTotalBytes(),
         filename: task.filename,
         path: state === 'completed' ? savePath : '',
-        error: state === 'completed' ? '' : item.getLastError()
+        error: state === 'completed' ? '' : 'Download interrupted'
       });
     });
     report('progress');
