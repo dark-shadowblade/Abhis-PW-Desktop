@@ -119,42 +119,80 @@ function startServer() {
           const raw = local.searchParams.get('url');
           if (!raw) throw new Error('Missing stream URL');
           const target = checkedUrl(raw);
-          const first = await fetchChunk(target, 0, DOWNLOAD_CHUNK - 1);
-          if (first.status !== 206) throw new Error('CDN returned ' + first.status);
-          const contentRange = /^bytes\s+0-(\d+)\/(\d+)$/i.exec(first.headers.get('content-range') || '');
-          if (!contentRange) throw new Error('CDN did not return a valid Content-Range');
-          const firstEnd = Number(contentRange[1]);
-          const total = Number(contentRange[2]);
-          if (!Number.isSafeInteger(total) || total <= 0 || firstEnd >= total || firstEnd > DOWNLOAD_CHUNK - 1) {
-            throw new Error('Invalid CDN file size');
+          const rangeHeader = req.headers.range || '';
+          const rangeMatch = rangeHeader ? /^bytes=(\d+)-(\d*)$/i.exec(rangeHeader) : null;
+          if (rangeHeader && !rangeMatch) {
+            res.writeHead(416, { 'content-range': 'bytes */*' });
+            return res.end('Invalid range');
           }
+          const start = rangeMatch ? Number(rangeMatch[1]) : 0;
+          const requestedEnd = rangeMatch && rangeMatch[2] ? Number(rangeMatch[2]) : null;
+          if (!Number.isSafeInteger(start) || (requestedEnd !== null && (!Number.isSafeInteger(requestedEnd) || requestedEnd < start))) {
+            res.writeHead(416);
+            return res.end('Invalid range');
+          }
+
+          const firstEndRequest = Math.min(start + DOWNLOAD_CHUNK - 1, requestedEnd ?? Number.MAX_SAFE_INTEGER);
+          const first = await fetchChunk(target, start, firstEndRequest);
+          if (first.status !== 206) throw new Error('CDN returned ' + first.status);
+          const firstRange = /^bytes\s+(\d+)-(\d+)\/(\d+)$/i.exec(first.headers.get('content-range') || '');
+          if (!firstRange) throw new Error('CDN did not return a valid Content-Range');
+          const rangeStart = Number(firstRange[1]);
+          const firstEnd = Number(firstRange[2]);
+          const total = Number(firstRange[3]);
+          if (rangeStart !== start || !Number.isSafeInteger(total) || total <= 0 ||
+              firstEnd < start || firstEnd >= total || firstEnd > firstEndRequest) {
+            throw new Error('Invalid CDN file range');
+          }
+          if (start >= total) {
+            res.writeHead(416, { 'content-range': 'bytes */' + total });
+            return res.end();
+          }
+          const finalEnd = requestedEnd === null ? total - 1 : Math.min(requestedEnd, total - 1);
           const base = path.basename(local.searchParams.get('filename') || 'lecture.mp4')
             .replace(/[^a-zA-Z0-9._-]/g, '_');
-          const filename = base.toLowerCase().endsWith('.mp4') ? base : base + '.mp4';
-          res.writeHead(200, {
-            'content-type': 'video/mp4',
-            'content-length': total,
+          const filename = /\.[a-z0-9]{2,5}$/i.test(base) ? base : base + '.mp4';
+          const responseLength = finalEnd - start + 1;
+          const headers = {
+            'content-type': first.headers.get('content-type') || 'application/octet-stream',
+            'content-length': responseLength,
             'content-disposition': 'attachment; filename="' + filename + '"',
+            'accept-ranges': 'bytes',
             'cache-control': 'no-store'
-          });
-          async function write(buffer) {
+          };
+          if (rangeHeader) headers['content-range'] = 'bytes ' + start + '-' + finalEnd + '/' + total;
+          res.writeHead(rangeHeader ? 206 : 200, headers);
+
+          async function writeChunk(buffer) {
+            if (res.destroyed) return false;
             if (!res.write(buffer)) await new Promise(ok => res.once('drain', ok));
+            return !res.destroyed;
           }
           let buffer = Buffer.from(await first.arrayBuffer());
-          if (buffer.length !== firstEnd + 1) throw new Error('First chunk length mismatch');
-          await write(buffer);
-          for (let start = firstEnd + 1; start < total; start += DOWNLOAD_CHUNK) {
-            if (res.destroyed) return;
-            const end = Math.min(start + DOWNLOAD_CHUNK - 1, total - 1);
-            const part = await fetchChunk(target, start, end);
-            if (part.status !== 206) throw new Error('CDN chunk failed: ' + part.status);
-            const expected = 'bytes ' + start + '-' + end + '/' + total;
-            if ((part.headers.get('content-range') || '').toLowerCase() !== expected.toLowerCase()) {
-              throw new Error('Unexpected CDN range');
+          if (buffer.length !== firstEnd - start + 1) throw new Error('First chunk length mismatch');
+          if (!await writeChunk(buffer)) return;
+
+          let nextStart = firstEnd + 1;
+          while (nextStart <= finalEnd && !res.destroyed) {
+            const group = [];
+            for (let i = 0; i < 3 && nextStart <= finalEnd; i++) {
+              const chunkStart = nextStart;
+              const chunkEnd = Math.min(chunkStart + DOWNLOAD_CHUNK - 1, finalEnd);
+              group.push({ start: chunkStart, end: chunkEnd });
+              nextStart = chunkEnd + 1;
             }
-            buffer = Buffer.from(await part.arrayBuffer());
-            if (buffer.length !== end - start + 1) throw new Error('Incomplete CDN chunk');
-            await write(buffer);
+            const chunks = await Promise.all(group.map(async chunk => {
+              const part = await fetchChunk(target, chunk.start, chunk.end);
+              if (part.status !== 206) throw new Error('CDN chunk failed: ' + part.status);
+              const expected = 'bytes ' + chunk.start + '-' + chunk.end + '/' + total;
+              if ((part.headers.get('content-range') || '').toLowerCase() !== expected.toLowerCase()) {
+                throw new Error('Unexpected CDN range');
+              }
+              const bytes = Buffer.from(await part.arrayBuffer());
+              if (bytes.length !== chunk.end - chunk.start + 1) throw new Error('Incomplete CDN chunk');
+              return bytes;
+            }));
+            for (const bytes of chunks) if (!await writeChunk(bytes)) return;
           }
           res.end();
         } catch (error) {
