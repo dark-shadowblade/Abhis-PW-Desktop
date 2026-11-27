@@ -78,17 +78,17 @@ async function createWindow() {
   });
   ipcMain.handle('download:pause', (_event, id) => {
     const task = activeDownloads.get(String(id));
-    if (task && !task.item.isDone()) task.item.pause();
+    if (task && task.item.getState() === 'progressing' && !task.item.isPaused()) task.item.pause();
     return { ok: !!task };
   });
   ipcMain.handle('download:resume', (_event, id) => {
     const task = activeDownloads.get(String(id));
-    if (task && task.item.isPaused()) task.item.resume();
+    if (task && task.item.isPaused() && task.item.canResume()) task.item.resume();
     return { ok: !!task };
   });
   ipcMain.handle('download:cancel', (_event, id) => {
     const task = activeDownloads.get(String(id));
-    if (task && !task.item.isDone()) task.item.cancel();
+    if (task && !['completed', 'cancelled'].includes(task.item.getState())) task.item.cancel();
     return { ok: !!task };
   });
 
