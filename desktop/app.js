@@ -51,7 +51,7 @@ function batchMatches(b,q){
  const query=q.toLowerCase().trim();
  if(!query)return true;
  if(hay.includes(query))return true;
- const tokens=query.split(/\\s+/).filter(Boolean);
+ const tokens=query.split(/\s+/).filter(Boolean);
  return tokens.length>1&&tokens.every(t=>hay.includes(t));
 }
 function normalizeBatchResponse(d){
@@ -84,9 +84,9 @@ async function searchBatches(reset=true){
    for(const result of pages.sort((a,b)=>a.page-b.page)){
     if(result.total)reported=result.total;
     scanned++;
-    if(!result.items.length){stop=true;break}
+    if(!result.items.length){next=result.page+1;stop=true;break}
     const ids=new Set(S.batches.map(x=>x.id));
-    if(result.items.every(x=>ids.has(x.id))){stop=true;break}
+    if(result.items.every(x=>ids.has(x.id))){next=result.page+1;stop=true;break}
     found.push(...result.items.filter(x=>batchMatches(x,q)));
     next=result.page+1;
    }
@@ -118,13 +118,13 @@ function renderContents(){$('contentsList').innerHTML=S.contents.length?S.conten
 async function getDetail(x){return await api('/batch/'+S.batch.id+'/subject/'+enc(S.subject.id)+'/chapter/'+enc(S.chapter.id)+'/content/'+enc(x.id))}
 async function playLecture(index){const x=S.contents[index];if(!x)return;S.current=index;localStorage.setItem('abhi_pw_last_lesson',JSON.stringify({batch:S.batch,subject:S.subject,chapter:S.chapter,itemId:x.id,title:x.title,type:S.type}));setScreen('player');$('playingTitle').textContent=x.title;$('playingSub').textContent=S.chapter.title;$('playerStatus').textContent='Preparing video…';$('video').pause();$('video').removeAttribute('src');$('video').load();$('video').classList.remove('hidden');$('playerPlaceholder').classList.remove('hidden');try{const d=await getDetail(x);S.stream=findUrl(d);if(!S.stream)throw Error('No video stream URL returned by the API');$('video').src='/video?url='+enc(S.stream);$('video').load();$('video').playbackRate=Number($('playbackSpeed').value||1);$('playerPlaceholder').classList.add('hidden');$('playerStatus').textContent='Ready';const savedProgress=JSON.parse(localStorage.getItem('abhi_pw_video_progress')||'{}');const resumeAt=Number(savedProgress[itemKey(x)]||0);if(resumeAt>5)$('video').currentTime=resumeAt;$('video').play().catch(()=>{});loadLectureResources()}catch(e){$('playerStatus').textContent=e.message;toast(e.message)}renderPlayerQueue()}
 function lectureNumber(title){
- let m=String(title||'').match(/\\b(?:lecture|lec)\\s*0*(\\d+)/i);
+ let m=String(title||'').match(/\b(?:lecture|lec)\s*0*(\d+)/i);
  if(m)return Number(m[1]);
- m=String(title||'').match(/(?<!\\d)0*(\\d+)\\s*:/);
+ m=String(title||'').match(/(?<!\d)0*(\d+)\s*:/);
  return m?Number(m[1]):null;
 }
 function resourceMatchesLecture(title,no){
- const patterns=[/\\bof\\s+(?:lecture|lec)\\s*0*(\\d+)/i,/\\b(?:lecture|lec)\\s*0*(\\d+)/i,/\\b0*(\\d+)\\s*:\\s*(?:daily\\s+class\\s+notes|class\\s+notes)\\b/i,/\\bMains\\s+Questions?\\s*0*(\\d+)/i,/\\bDPP\\s+of\\s+Lec\\s*0*(\\d+)/i];
+ const patterns=[/\bof\s+(?:lecture|lec)\s*0*(\d+)/i,/\b(?:lecture|lec)\s*0*(\d+)/i,/\b0*(\d+)\s*:\s*(?:daily\s+class\s+notes|class\s+notes)\b/i,/\bMains\s+Questions?\s*0*(\d+)/i,/\bDPP\s+of\s+Lec\s*0*(\d+)/i];
  for(const p of patterns){const m=String(title||'').match(p);if(m)return Number(m[1])===no}
  return false;
 }
@@ -201,7 +201,7 @@ function syncPlayerUI(){
  $('togglePlay').textContent=video.paused?'▶':'Ⅱ';$('centerPlay').textContent=video.paused?'▶':'Ⅱ';
  $('muteToggle').textContent=(video.muted||video.volume===0)?'🔇':'🔊';
  $('volumeBar').value=video.muted?0:video.volume;
- playerBox.classList.toggle('playing',!video.paused);playerBox.classList.toggle('paused',video.paused);
+ playerBox.classList.toggle('playing',!video.paused);playerBox.classList.toggle('paused',video.paused);playerBox.classList.toggle('paused',video.paused);
 }
 video.addEventListener('timeupdate',()=>{syncPlayerUI();if(S.current>=0&&S.contents[S.current]){const p=JSON.parse(localStorage.getItem('abhi_pw_video_progress')||'{}');p[itemKey(S.contents[S.current])] = video.currentTime;localStorage.setItem('abhi_pw_video_progress',JSON.stringify(p))}});
 ['loadedmetadata','durationchange','play','pause','volumechange','waiting','canplay'].forEach(ev=>video.addEventListener(ev,syncPlayerUI));
@@ -214,7 +214,7 @@ $('muteToggle').onclick=()=>{video.muted=!video.muted;syncPlayerUI()};
 $('fullScreen').onclick=()=>{if(!document.fullscreenElement)playerBox.requestFullscreen?.();else document.exitFullscreen?.()};
 syncPlayerUI();
 $('downloadCurrent').onclick=()=>{const x=S.contents[S.current];if(x)downloadItem(x)};$('clearQueue').onclick=()=>{S.queue.forEach(t=>window.studyDownloads?.cancel(String(t.id)));S.queue=[];saveQueue();renderQueue()};$('parallelLimit').value=String(Number(localStorage.getItem('abhi_pw_parallel')||3));$('parallelLimit').onchange=e=>localStorage.setItem('abhi_pw_parallel',String(Math.max(1,Math.min(5,Number(e.target.value)))));$('refreshDownloads').onclick=renderDownloads;$('clearApiKey').onclick=()=>{S.key='';localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);$('apiKey').value='';$('keyStatus').textContent='Saved API key cleared.';toast('API key cleared')};$('clearHistory').onclick=()=>{S.downloads=[];saveQueue();renderDownloads()};
-loadSaved();try{S.queue=JSON.parse(localStorage.getItem('abhi_pw_queue')||'[]');S.downloads=JSON.parse(localStorage.getItem('abhi_pw_downloads')||'[]')}catch{}renderQueue();
+loadSaved();try{S.queue=JSON.parse(localStorage.getItem('abhi_pw_queue')||'[]');S.downloads=JSON.parse(localStorage.getItem('abhi_pw_downloads')||'[]');S.queue.forEach(t=>{if(['Starting','Downloading'].includes(t.status))t.status='Queued'})}catch{}renderQueue();
 if(window.studyDownloads){window.studyDownloads.onProgress(onDownloadProgress);window.studyDownloads.onDone(onDownloadDone);}
 const saved=localStorage.getItem('abhi_pw_key'),expiry=Number(localStorage.getItem('abhi_pw_expiry')||0);if(saved&&expiry>Date.now()){S.key=saved;if($('apiKey'))$('apiKey').value=saved;connected(true);try{S.batch=JSON.parse(localStorage.getItem('abhi_pw_active_batch')||'null')}catch{}renderHome()}else{localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);keyModal(true)}
 })();
