@@ -4,7 +4,7 @@
 .video video{display:block;object-fit:contain}
 .centerPlay{position:absolute;z-index:2;left:50%;top:50%;transform:translate(-50%,-50%);width:66px;height:66px;border-radius:50%;background:#a99aff;color:#17152a;font-size:25px;box-shadow:0 8px 28px #0008;display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .18s}
 .video.paused .centerPlay{opacity:1;pointer-events:auto}
-.video:has(video:paused) .centerPlay{opacity:1;pointer-events:auto}
+
 .playerHud{position:absolute;z-index:3;left:0;right:0;bottom:0;padding:30px 16px 13px;background:linear-gradient(transparent,#05070bf2);color:#fff;opacity:1;transition:opacity .2s}
 .playerHud button{background:#252a38d9;color:#f4f1ff;border:1px solid #ffffff20;border-radius:8px;min-width:38px;height:34px;padding:0 10px;font-size:13px}
 .seekRow{display:flex;align-items:center;gap:10px;font-size:11px;font-variant-numeric:tabular-nums;margin-bottom:9px}
