@@ -5,7 +5,8 @@ const path = require('path');
 const { URL } = require('url');
 
 const API = 'https://v1.sgmvv1.xyz/api/v1';
-const CHUNK = 2 * 1024 * 1024;
+const VIDEO_CHUNK = 2 * 1024 * 1024;
+const DOWNLOAD_CHUNK = 1024 * 1024;
 const CDN_HOST = /^a\d+\.stmvv1\.xyz$/i;
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -59,11 +60,11 @@ function startServer() {
             return res.end('Invalid range');
           }
           const start = Number(match[1]);
-          const requestedEnd = match[2] ? Number(match[2]) : start + CHUNK - 1;
+          const requestedEnd = match[2] ? Number(match[2]) : start + VIDEO_CHUNK - 1;
           if (!Number.isSafeInteger(start) || !Number.isSafeInteger(requestedEnd) || requestedEnd < start) {
             throw new Error('Invalid byte range');
           }
-          const end = Math.min(requestedEnd, start + CHUNK - 1);
+          const end = Math.min(requestedEnd, start + VIDEO_CHUNK - 1);
           const upstream = await fetchChunk(target, start, end);
           if (upstream.status !== 206) {
             const message = (await upstream.text()).slice(0, 400);
@@ -109,13 +110,13 @@ function startServer() {
           const raw = local.searchParams.get('url');
           if (!raw) throw new Error('Missing stream URL');
           const target = checkedUrl(raw);
-          const first = await fetchChunk(target, 0, CHUNK - 1);
+          const first = await fetchChunk(target, 0, DOWNLOAD_CHUNK - 1);
           if (first.status !== 206) throw new Error('CDN returned ' + first.status);
           const contentRange = /^bytes\s+0-(\d+)\/(\d+)$/i.exec(first.headers.get('content-range') || '');
           if (!contentRange) throw new Error('CDN did not return a valid Content-Range');
           const firstEnd = Number(contentRange[1]);
           const total = Number(contentRange[2]);
-          if (!Number.isSafeInteger(total) || total <= 0 || firstEnd >= total || firstEnd > CHUNK - 1) {
+          if (!Number.isSafeInteger(total) || total <= 0 || firstEnd >= total || firstEnd > DOWNLOAD_CHUNK - 1) {
             throw new Error('Invalid CDN file size');
           }
           const base = path.basename(local.searchParams.get('filename') || 'lecture.mp4')
@@ -133,9 +134,9 @@ function startServer() {
           let buffer = Buffer.from(await first.arrayBuffer());
           if (buffer.length !== firstEnd + 1) throw new Error('First chunk length mismatch');
           await write(buffer);
-          for (let start = firstEnd + 1; start < total; start += CHUNK) {
+          for (let start = firstEnd + 1; start < total; start += DOWNLOAD_CHUNK) {
             if (res.destroyed) return;
-            const end = Math.min(start + CHUNK - 1, total - 1);
+            const end = Math.min(start + VIDEO_CHUNK - 1, total - 1);
             const part = await fetchChunk(target, start, end);
             if (part.status !== 206) throw new Error('CDN chunk failed: ' + part.status);
             const expected = 'bytes ' + start + '-' + end + '/' + total;
