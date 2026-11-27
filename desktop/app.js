@@ -2,8 +2,8 @@
 const API='/api/v1', B1='6a0eb0a7f33c042849418636', $=id=>document.getElementById(id);
 const S={key:'',batch:null,saved:[],batches:[],subjects:[],chapters:[],contents:[],resources:[],type:'videos',screen:'home',subject:null,chapter:null,current:-1,stream:'',search:'',page:1,totalPages:1,queue:[],downloads:[],progress:{}};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const ident=x=>String(x?._id||x?.id||x?.subjectId||x?.chapterId||x?.contentId||x?.batchId||'');
-const name=x=>x?.name||x?.title||x?.topic||'Untitled';
+const ident=x=>String(x?._id||x?.id||x?.subjectId||x?.chapterId||x?.chapter_id||x?.contentId||x?.videoId||x?.batchId||x?.batch_id||'');
+const name=x=>x?.name||x?.title||x?.topic||x?.subject||'Untitled';
 const enc=encodeURIComponent;
 function toast(m){$('toast').textContent=m;$('toast').classList.remove('hidden');clearTimeout(toast.t);toast.t=setTimeout(()=>$('toast').classList.add('hidden'),3200)}
 function setScreen(screen){S.screen=screen;['home','all_batches','my_batches','subjects','chapters','contents','player','download_center','downloads','settings'].forEach(x=>{const e=$(x);if(e)e.classList.toggle('hidden',x!==screen)});document.querySelectorAll('[data-nav]').forEach(e=>e.classList.toggle('active',e.dataset.nav===screen));$('crumb').textContent=({home:'Study',all_batches:'All batches',my_batches:'My batches',subjects:'Subjects',chapters:'Chapters',contents:'Learning materials',player:'Now playing',download_center:'Downloader',downloads:'Downloads',settings:'Settings'})[screen]||'Study'}
