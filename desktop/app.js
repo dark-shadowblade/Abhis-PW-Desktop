@@ -1,6 +1,6 @@
 (()=>{'use strict';
 const API='/api/v1', B1='6a0eb0a7f33c042849418636', $=id=>document.getElementById(id);
-const S={key:'',batch:null,saved:[],batches:[],subjects:[],chapters:[],contents:[],resources:[],type:'videos',screen:'home',subject:null,chapter:null,current:-1,stream:'',search:'',page:1,totalPages:1,queue:[],downloads:[],progress:{},clearingQueue:false};
+const S={key:'',batch:null,saved:[],batches:[],subjects:[],chapters:[],contents:[],resources:[],type:'videos',screen:'home',subject:null,chapter:null,current:-1,stream:'',search:'',page:1,totalPages:1,queue:[],downloads:[],progress:{},clearingQueue:false,playRequest:0,resourceRequest:0};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ident=x=>String(x?._id||x?.id||x?.subjectId||x?.chapterId||x?.chapter_id||x?.contentId||x?.videoId||x?.batchId||x?.batch_id||'');
 const name=x=>x?.name||x?.title||x?.topic||x?.subject||'Untitled';
@@ -144,7 +144,7 @@ function cat(){return ({videos:'Lectures',notes:'Notes',DppNotes:'DPP',DppVideos
 function itemKey(x){return [S.batch?.id,S.subject?.id,S.chapter?.id,x.id].join(':')}
 function renderContents(){$('contentsList').innerHTML=S.contents.length?S.contents.map((x,i)=>{const video=S.type==='videos'||S.type==='DppVideos';const done=S.downloads.some(d=>d.itemKey===itemKey(x));return '<div class="item"><span class="itemIcon">'+(video?'▶':'PDF')+'</span><span class="itemMain"><b>'+esc(x.title)+'</b><small>'+(video?'Video lecture':cat())+(done?' · Downloaded':'')+'</small></span><button class="soft" data-download="'+i+'">↓</button><button class="openItem" data-open="'+i+'">'+(video?'Play':'Open PDF')+'</button></div>'}).join(''):'<div class="empty">No learning material found for this category.</div>';document.querySelectorAll('[data-open]').forEach(e=>e.onclick=()=>{const x=S.contents[+e.dataset.open];if(S.type==='videos'||S.type==='DppVideos')playLecture(+e.dataset.open);else openResource(x)});document.querySelectorAll('[data-download]').forEach(e=>e.onclick=()=>downloadItem(S.contents[+e.dataset.download]))}
 async function getDetail(x){return await api('/batch/'+S.batch.id+'/subject/'+enc(S.subject.id)+'/chapter/'+enc(S.chapter.id)+'/content/'+enc(x.id))}
-async function playLecture(index){const x=S.contents[index];if(!x)return;S.current=index;localStorage.setItem('abhi_pw_last_lesson',JSON.stringify({batch:S.batch,subject:S.subject,chapter:S.chapter,itemId:x.id,title:x.title,type:S.type}));setScreen('player');$('playingTitle').textContent=x.title;$('playingSub').textContent=S.chapter.title;$('playerStatus').textContent='Preparing video…';$('video').pause();$('video').removeAttribute('src');$('video').load();$('video').classList.remove('hidden');$('playerPlaceholder').classList.remove('hidden');try{const d=await getDetail(x);S.stream=findUrl(d);if(!S.stream)throw Error('No video stream URL returned by the API');$('video').src='/video?url='+enc(S.stream);$('video').load();$('video').playbackRate=Number($('playbackSpeed').value||1);$('playerPlaceholder').classList.add('hidden');$('playerStatus').textContent='Ready';const savedProgress=JSON.parse(localStorage.getItem('abhi_pw_video_progress')||'{}');const resumeAt=Number(savedProgress[itemKey(x)]||0);if(resumeAt>5)$('video').currentTime=resumeAt;$('video').play().catch(()=>{});loadLectureResources()}catch(e){$('playerStatus').textContent=e.message;toast(e.message)}renderPlayerQueue()}
+async function playLecture(index){const x=S.contents[index];if(!x)return;const request=++S.playRequest;S.current=index;S.stream='';S.resourceRequest++;localStorage.setItem('abhi_pw_last_lesson',JSON.stringify({batch:S.batch,subject:S.subject,chapter:S.chapter,itemId:x.id,title:x.title,type:S.type}));setScreen('player');$('playingTitle').textContent=x.title;$('playingSub').textContent=S.chapter.title;$('playerStatus').textContent='Preparing video…';$('video').pause();$('video').removeAttribute('src');$('video').load();$('video').classList.remove('hidden');$('playerPlaceholder').classList.remove('hidden');$('playerResources').innerHTML='<p>Finding linked notes and DPP…</p>';try{const d=await getDetail(x);if(request!==S.playRequest||S.contents[S.current]?.id!==x.id)return;const stream=findUrl(d);if(!stream)throw Error('No video stream URL returned by the API');S.stream=stream;$('video').src='/video?url='+enc(stream);$('video').load();$('video').playbackRate=Number($('playbackSpeed').value||1);$('playerPlaceholder').classList.add('hidden');$('playerStatus').textContent='Ready';const savedProgress=JSON.parse(localStorage.getItem('abhi_pw_video_progress')||'{}');const resumeAt=Number(savedProgress[itemKey(x)]||0);if(resumeAt>5)$('video').currentTime=resumeAt;$('video').play().catch(()=>{});loadLectureResources(request)}catch(e){if(request!==S.playRequest)return;$('playerStatus').textContent=e.message;toast(e.message)}renderPlayerQueue()}
 function lectureNumber(title){
  let m=String(title||'').match(/\b(?:lecture|lec)\s*0*(\d+)/i);
  if(m)return Number(m[1]);
@@ -156,13 +156,16 @@ function resourceMatchesLecture(title,no){
  for(const p of patterns){const m=String(title||'').match(p);if(m)return Number(m[1])===no}
  return false;
 }
-async function loadLectureResources(){
+async function loadLectureResources(playRequest=S.playRequest){
  const x=S.contents[S.current];if(!x)return;
- const no=lectureNumber(x.title);
- const base='/batch/'+S.batch.id+'/subject/'+enc(S.subject.id)+'/chapter/'+enc(S.chapter.id)+'/content';
+ const no=lectureNumber(x.title),batchId=S.batch?.id,subjectId=S.subject?.id,chapterId=S.chapter?.id;
+ const request=++S.resourceRequest;
+ const base='/batch/'+enc(batchId)+'/subject/'+enc(subjectId)+'/chapter/'+enc(chapterId)+'/content';
  $('playerResources').innerHTML='<p>Finding linked notes and DPP…</p>';
+ const current=()=>request===S.resourceRequest&&playRequest===S.playRequest&&S.contents[S.current]?.id===x.id&&S.batch?.id===batchId&&S.subject?.id===subjectId&&S.chapter?.id===chapterId;
  try{
   const [n,d]=await Promise.all([api(base+'?type=notes'),api(base+'?type=DppNotes')]);
+  if(!current())return;
   const notes=arr(n,['contents','notes','items','data']);
   const dpps=arr(d,['contents','notes','items','data']);
   const all=[...notes.map(v=>({...v,_kind:'Notes'})),...dpps.map(v=>({...v,_kind:'DPP'}))];
@@ -170,7 +173,7 @@ async function loadLectureResources(){
   $('playerResources').innerHTML=S.resources.length?S.resources.map((r,i)=>'<div class="resource"><b>'+esc(name(r))+'</b><span>'+esc(r._kind)+'</span><button data-pr="'+i+'">Open</button><button data-prd="'+i+'">↓</button></div>').join(''):'<p>No linked resources found for '+(no===null?'this chapter':'Lecture '+no)+'. Check the Notes and DPP tabs for all chapter materials.</p>';
   document.querySelectorAll('[data-pr]').forEach(e=>e.onclick=()=>openResource(S.resources[+e.dataset.pr]));
   document.querySelectorAll('[data-prd]').forEach(e=>e.onclick=()=>downloadItem({id:ident(S.resources[+e.dataset.prd]),title:name(S.resources[+e.dataset.prd]),raw:S.resources[+e.dataset.prd]},S.resources[+e.dataset.prd]._kind,false));
- }catch(e){$('playerResources').innerHTML='<p>Could not load linked resources: '+esc(e.message)+'</p>'}
+ }catch(e){if(current())$('playerResources').innerHTML='<p>Could not load linked resources: '+esc(e.message)+'</p>'}
 }
 function openResource(x){
  const u=x.raw?.baseUrl||findUrl(x);
