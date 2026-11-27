@@ -158,6 +158,8 @@ function startServer() {
             'content-length': responseLength,
             'content-disposition': 'attachment; filename="' + filename + '"',
             'accept-ranges': 'bytes',
+            'etag': first.headers.get('etag') || '"' + total + '"',
+            'last-modified': first.headers.get('last-modified') || new Date(0).toUTCString(),
             'cache-control': 'no-store'
           };
           if (rangeHeader) headers['content-range'] = 'bytes ' + start + '-' + finalEnd + '/' + total;
