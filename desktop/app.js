@@ -69,12 +69,23 @@ function batchMatches(b,q){
   (token.length>=7&&candidate.length>=7&&editDistance(token,candidate)<=2)
  ));
 }
+function findBatchImage(value,depth=0){
+ if(depth>5||value==null)return '';
+ if(typeof value==='string')return /^https?:\/\//i.test(value.trim())?value.trim():'';
+ if(Array.isArray(value)){for(const item of value){const found=findBatchImage(item,depth+1);if(found)return found}return ''}
+ if(typeof value==='object'){
+  const preferred=['previewImage','thumbnail','thumbnailurl','thumbnail_url','thumb','thumburl','thumb_url','image','imageurl','image_url','coverimage','cover_image','cover','banner','bannerimage','banner_image','batchimage','batch_image','logo','photo','photourl','photo_url','poster','avatar','picture'];
+  for(const key of preferred){const actual=Object.keys(value).find(k=>k.toLowerCase()===key);if(actual){const found=findBatchImage(value[actual],depth+1);if(found)return found}}
+  for(const nested of Object.values(value)){const found=findBatchImage(nested,depth+1);if(found)return found}
+ }
+ return '';
+}
 function normalizeBatchResponse(d){
  const raw=extractBatchArray(d)||[];
  return raw.map(x=>({
   id:String(x._id||x.id||x.batchId||x.batch_id||''),
   name:x.name||x.title||x.batchName||'Unnamed batch',
-  image:x.previewImage||x.thumbnail||x.thumbnailUrl||x.thumbnail_url||x.image||'',
+  image:findBatchImage(x),
   language:x.lang||x.language||'',
   className:x.class||x.className||''
  })).filter(x=>x.id);
