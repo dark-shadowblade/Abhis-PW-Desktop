@@ -65,8 +65,8 @@ async function action(el){const a=el.dataset.action,id=el.dataset.id;switch(a){
 case'go':setScreen(el.dataset.screen);if(el.dataset.screen==='all-batches'&&!state.batchResults.length)searchBatches(true);break;
 case'open-settings':setScreen('settings');showKeyModal();break;
 case'reload-subjects':loadSubjects();break;
-case'open-batch':openBatch(batchInfo(id));break;
-case'save-batch':{const x=state.batchResults.find(y=>y.id===id);if(x){saveBatch(x);render();notify('Added to My batches.')}break}
+case'open-batch':openBatch(state.batchResults.find(x=>x.id===id)||batchInfo(id));break;
+case'save-batch':{const x=state.batchResults.find(y=>y.id===id);if(x){if(!state.batchId)openBatch(x);else{saveBatch(x);render();notify('Added to My batches.')}}break}
 case'remove-batch':state.saved=state.saved.filter(x=>x.id!==id);store.set('saved',state.saved);render();break;
 case'select-item':{const x=(el.dataset.kind==='subject'?state.subjects:el.dataset.kind==='chapter'?state.chapters:state.contents).find(y=>y.id===id);if(!x)break;if(el.dataset.kind==='subject')openSubject(x);else if(el.dataset.kind==='chapter')openChapter(x);else if(state.contentType==='videos'||state.contentType==='DppVideos')playIndex(state.contents.indexOf(x));else{const u=resourceUrl(x);if(u)window.open(u,'_blank','noopener');else notify('No document link found.')}break}
 case'star':toggleStar(id);break;
@@ -77,7 +77,7 @@ case'back-contents':setScreen('contents');break;
 case'download-item':startItemDownload(id,el.dataset.category,el.dataset.key);break;
 case'search-batches':state.batchQuery=$('batchSearch')?.value||'';searchBatches(true);break;
 case'more-batches':state.batchQuery=$('batchSearch')?.value||state.batchQuery;searchBatches(false);break;
-case'add-manual':{const id=($('manualBatchId')?.value||'').trim();if(!/^[A-Za-z0-9_-]{8,64}$/.test(id)){notify('Enter a valid batch ID (8–64 letters or numbers).');break}saveBatch({id,name:'Manual batch',language:'',className:'',image:''});render();notify('Batch added to My batches.');break}
+case'add-manual':{const id=($('manualBatchId')?.value||'').trim();if(!/^[A-Za-z0-9_-]{8,64}$/.test(id)){notify('Enter a valid batch ID (8–64 letters or numbers).');break}const info={id,name:'Manual batch',language:'',className:'',image:''};if(!state.batchId)openBatch(info);else{saveBatch(info);render();notify('Batch added to My batches.')}break}
 case'resume-last':resumeLast();break;
 case'generate-key':generateKey();break;
 case'verify-key':verifyKey($('settingsKey')?.value||'');break;
