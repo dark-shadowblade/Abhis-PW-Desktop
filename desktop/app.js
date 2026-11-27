@@ -46,13 +46,28 @@ function extractTotalPages(value,depth=0){
  }
  return 0;
 }
+function editDistance(a,b){
+ let previous=Array.from({length:b.length+1},(_,i)=>i);
+ for(let i=0;i<a.length;i++){
+  const current=[i+1];
+  for(let j=0;j<b.length;j++)current[j+1]=Math.min(current[j]+1,previous[j+1]+1,previous[j]+(a[i]===b[j]?0:1));
+  previous=current;
+ }
+ return previous[b.length];
+}
 function batchMatches(b,q){
- const hay=(b.name+' '+b.id+' '+b.language+' '+b.className).toLowerCase();
- const query=q.toLowerCase().trim();
+ const normalize=s=>String(s||'').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+ const searchable=normalize([b.name,b.language,b.className,b.id].join(' '));
+ const query=normalize(q);
  if(!query)return true;
- if(hay.includes(query))return true;
- const tokens=query.split(/\s+/).filter(Boolean);
- return tokens.length>1&&tokens.every(t=>hay.includes(t));
+ if(searchable.includes(query))return true;
+ const queryTokens=query.split(/\s+/).filter(Boolean);
+ const nameTokens=searchable.split(/\s+/).filter(Boolean);
+ return queryTokens.every(token=>nameTokens.some(candidate=>
+  candidate===token||candidate.startsWith(token)||token.startsWith(candidate)||
+  (token.length>=5&&candidate.length>=5&&editDistance(token,candidate)<=(token.length>=8?2:1))||
+  (token.length>=7&&candidate.length>=7&&editDistance(token,candidate)<=2)
+ ));
 }
 function normalizeBatchResponse(d){
  const raw=extractBatchArray(d)||[];
