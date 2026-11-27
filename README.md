@@ -1,6 +1,6 @@
 # Abhi's PW Desktop
 
-A separate Windows desktop application for Abhi's PW, built with Electron and a bundled local Node.js service.
+An Electron desktop study workspace with a local Node.js API/CDN proxy.
 
 ## Run locally
 ```bash
@@ -12,11 +12,27 @@ npm start
 ```bash
 npm run build
 ```
+The GitHub Actions workflow can also build the Windows installer.
 
-The Windows installer is also built by GitHub Actions. Open **Actions → Build Windows EXE** and download the `Abhis-PW-Windows-Installer` artifact after a successful run.
+## Included
+- Server 1 / Server 2 selection
+- Study API key generation, activation and verification
+- Batch → subject → chapter navigation
+- Video lecture playback through the local Node server
+- Notes and DPP resource links
+- Chunked video downloads
+- Responsive dark desktop/mobile layout
 
-## Current status
-- Desktop shell and local Node.js server: scaffolded.
-- API proxy: intentionally not connected until the exact provider endpoints, headers, and authentication flow are verified from the Android app.
-- Batch, subject, lecture and playback integration: pending.
-- No Android repository or signing key is modified by this project.
+## Streaming architecture
+The Electron renderer never contacts the CDN directly. It requests `/video?url=...` from the bundled local Node server. The server converts standard browser `Range: bytes=...` requests into the CDN's custom `?s=start&e=end` range protocol, then streams the returned 206 response to the video element. Downloads use the same custom range protocol through `/download`.
+
+Study API calls use the local `/api/v1/*` route; the server forwards them to `https://v1.sgmvv1.xyz/api/v1` and forwards the `x-api-key` header.
+
+## API key storage
+The key is stored in the Electron renderer's localStorage and expires locally after 24 hours. Keep it private.
+
+## Notes
+- Existing Electron main process and package/build configuration are retained.
+- CDN proxy only accepts HTTPS hosts matching `a<number>.stmvv1.xyz`.
+- Live API response formats and real account playback must still be verified with an authorized key.
+- For production distribution, consider adding stronger local IPC boundaries and request throttling.
