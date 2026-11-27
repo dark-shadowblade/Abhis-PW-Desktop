@@ -136,7 +136,7 @@ function startServer() {
           await write(buffer);
           for (let start = firstEnd + 1; start < total; start += DOWNLOAD_CHUNK) {
             if (res.destroyed) return;
-            const end = Math.min(start + VIDEO_CHUNK - 1, total - 1);
+            const end = Math.min(start + DOWNLOAD_CHUNK - 1, total - 1);
             const part = await fetchChunk(target, start, end);
             if (part.status !== 206) throw new Error('CDN chunk failed: ' + part.status);
             const expected = 'bytes ' + start + '-' + end + '/' + total;
