@@ -3,7 +3,7 @@ const fs=require('fs');
 const path=require('path');
 const {URL}=require('url');
 const API='https://v1.sgmvv1.xyz/api/v1';
-const CHUNK=1024*1024;
+const CHUNK=2*1024*1024;
 const CDN_HOST=/^a\\d+\\.stmvv1\\.xyz$/i;
 const MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.json':'application/json'};
 function startServer(){return new Promise((resolve,reject)=>{
