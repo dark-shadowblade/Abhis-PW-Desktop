@@ -41,7 +41,7 @@ function extractBatchArray(value,depth=0,empty={value:null}){
 function extractTotalPages(value,depth=0){
  if(depth>8||!value||typeof value!=='object')return 0;
  for(const [k,v] of Object.entries(value)){
-  if(['totalPages','total_pages','totalPage','total_page','pages'].includes(k.toLowerCase())&&Number(v)>0)return Number(v);
+  if(['totalpages','total_pages','totalpage','total_page','pages'].includes(k.toLowerCase())&&Number(v)>0)return Number(v);
   const found=extractTotalPages(v,depth+1);if(found)return found;
  }
  return 0;
