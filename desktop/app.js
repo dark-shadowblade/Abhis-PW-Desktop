@@ -209,6 +209,24 @@ function back(){if(S.screen==='player')setScreen('contents');else if(S.screen===
 document.querySelectorAll('[data-nav]').forEach(e=>e.onclick=()=>{const s=e.dataset.nav;setScreen(s);if(s==='home')renderHome();if(s==='all_batches')searchBatches();if(s==='my_batches')renderMyBatches();if(s==='downloads')renderDownloads();if(s==='download_center')renderQueue()});
 $('settingsBtn').onclick=$('keyBtn').onclick=()=>setScreen('settings');$('openSettings').onclick=()=>{keyModal(false);setScreen('settings')};$('generate').onclick=generateKey;$('verify').onclick=verifyKey;$('backBtn').onclick=back;$('findBatches').onclick=()=>searchBatches();$('batchSearch').onkeydown=e=>{if(e.key==='Enter')searchBatches()};$('nextBatchPage').onclick=()=>{if(S.page<S.totalPages){S.page++;searchBatches(false)}};$('prevBatchPage').onclick=()=>{if(S.page>1){S.page--;searchBatches(false)}};$('addBatch').onclick=()=>{const id=$('manualBatchId').value.trim();if(!id)return;const b={id,name:'Batch '+id};S.saved=[...S.saved.filter(x=>x.id!==id),b];saveSaved();$('manualBatchId').value='';renderMyBatches();toast('Batch added')};$('refreshSubjects').onclick=loadSubjects;$('contentTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>loadContents(b.dataset.type));$('prevVideo').onclick=()=>playLecture(S.current+1);$('nextVideo').onclick=()=>playLecture(S.current-1);$('playbackSpeed').onchange=e=>{video.playbackRate=Number(e.target.value)};const video=$('video'),playerBox=document.querySelector('.video');
 function fmtTime(seconds){if(!Number.isFinite(seconds)||seconds<0)return '0:00';const s=Math.floor(seconds);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+let hudTimer=null;
+function revealPlayerHud(){
+ playerBox.classList.add('showHud');clearTimeout(hudTimer);
+ if(!video.paused)hudTimer=setTimeout(()=>playerBox.classList.remove('showHud'),4500);
+}
+playerBox.addEventListener('mousemove',revealPlayerHud);
+video.addEventListener('click',()=>{if(playerBox.classList.contains('showHud')&&!video.paused)playerBox.classList.remove('showHud');else revealPlayerHud()});
+video.addEventListener('dblclick',e=>{const r=video.getBoundingClientRect();video.currentTime=Math.max(0,Math.min(video.duration||Infinity,video.currentTime+(e.clientX<r.left+r.width/2?-10:10)));revealPlayerHud();e.preventDefault()});
+video.addEventListener('play',revealPlayerHud);
+video.addEventListener('pause',()=>{clearTimeout(hudTimer);playerBox.classList.add('showHud')});
+document.addEventListener('keydown',e=>{
+ if(S.screen!=='player'||/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;
+ if(e.code==='Space'){e.preventDefault();video.paused?video.play().catch(()=>{}):video.pause()}
+ else if(e.key==='ArrowLeft')video.currentTime=Math.max(0,video.currentTime-10);
+ else if(e.key==='ArrowRight')video.currentTime=Math.min(video.duration||Infinity,video.currentTime+10);
+ else if(e.key.toLowerCase()==='f')$('fullScreen').click();
+ revealPlayerHud();
+});
 function syncPlayerUI(){
  const duration=Number.isFinite(video.duration)?video.duration:0;
  $('seekBar').max=duration||0;$('seekBar').value=video.currentTime||0;
@@ -229,7 +247,7 @@ $('muteToggle').onclick=()=>{video.muted=!video.muted;syncPlayerUI()};
 $('fullScreen').onclick=()=>{if(!document.fullscreenElement)playerBox.requestFullscreen?.();else document.exitFullscreen?.()};
 syncPlayerUI();
 $('downloadCurrent').onclick=()=>{const x=S.contents[S.current];if(x)downloadItem(x)};$('clearQueue').onclick=()=>{S.queue.forEach(t=>window.studyDownloads?.cancel(String(t.id)));S.queue=[];saveQueue();renderQueue()};$('parallelLimit').value=String(Number(localStorage.getItem('abhi_pw_parallel')||3));$('parallelLimit').onchange=e=>localStorage.setItem('abhi_pw_parallel',String(Math.max(1,Math.min(5,Number(e.target.value)))));$('refreshDownloads').onclick=renderDownloads;$('clearApiKey').onclick=()=>{S.key='';localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);$('apiKey').value='';$('keyStatus').textContent='Saved API key cleared.';toast('API key cleared')};$('clearHistory').onclick=()=>{S.downloads=[];saveQueue();renderDownloads()};
-loadSaved();try{S.queue=JSON.parse(localStorage.getItem('abhi_pw_queue')||'[]');S.downloads=JSON.parse(localStorage.getItem('abhi_pw_downloads')||'[]');S.queue.forEach(t=>{if(['Starting','Downloading'].includes(t.status))t.status='Queued'})}catch{}renderQueue();
+loadSaved();try{S.queue=JSON.parse(localStorage.getItem('abhi_pw_queue')||'[]');S.downloads=JSON.parse(localStorage.getItem('abhi_pw_downloads')||'[]');S.queue.forEach(t=>{if(['Starting','Downloading','Paused'].includes(t.status))t.status='Queued'})}catch{}renderQueue();
 if(window.studyDownloads){window.studyDownloads.onProgress(onDownloadProgress);window.studyDownloads.onDone(onDownloadDone);}
 const saved=localStorage.getItem('abhi_pw_key'),expiry=Number(localStorage.getItem('abhi_pw_expiry')||0);if(saved&&expiry>Date.now()){S.key=saved;if($('apiKey'))$('apiKey').value=saved;connected(true);try{S.batch=JSON.parse(localStorage.getItem('abhi_pw_active_batch')||'null')}catch{}renderHome()}else{localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);keyModal(true)}
 })();
