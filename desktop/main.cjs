@@ -78,7 +78,7 @@ async function createWindow() {
   });
   ipcMain.handle('download:pause', (_event, id) => {
     const task = activeDownloads.get(String(id));
-    if (task && task.item.isInProgress()) task.item.pause();
+    if (task && !task.item.isDone()) task.item.pause();
     return { ok: !!task };
   });
   ipcMain.handle('download:resume', (_event, id) => {
@@ -88,7 +88,7 @@ async function createWindow() {
   });
   ipcMain.handle('download:cancel', (_event, id) => {
     const task = activeDownloads.get(String(id));
-    if (task && task.item.isInProgress()) task.item.cancel();
+    if (task && !task.item.isDone()) task.item.cancel();
     return { ok: !!task };
   });
 
