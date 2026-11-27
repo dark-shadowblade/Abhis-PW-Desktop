@@ -19,7 +19,91 @@ function loadSaved(){try{S.saved=JSON.parse(localStorage.getItem('abhi_pw_saved_
 function saveSaved(){localStorage.setItem('abhi_pw_saved_batches',JSON.stringify(S.saved))}
 function batchCard(b,small=false){return '<article class="batch" data-batch="'+esc(b.id)+'"><div class="cover">'+(b.image?'<img src="'+esc(b.image)+'">':'▤')+'</div><b>'+esc(b.name)+'</b><p>'+esc([b.language,b.className].filter(Boolean).join(' · ')||'Study batch')+'</p><div class="cardFoot"><span>Open batch →</span><button class="starBatch" data-save="'+esc(b.id)+'">'+(S.saved.some(x=>x.id===b.id)?'★ Saved':'☆ Save')+'</button></div></article>'}
 function bindBatchCards(){document.querySelectorAll('[data-batch]').forEach(e=>e.onclick=()=>{const b=[...S.batches,...S.saved].find(x=>x.id===e.dataset.batch);if(b)openBatch(b)});document.querySelectorAll('[data-save]').forEach(e=>e.onclick=ev=>{ev.stopPropagation();const id=e.dataset.save;const b=[...S.batches,...S.saved].find(x=>x.id===id);if(!b)return;S.saved=S.saved.some(x=>x.id===id)?S.saved.filter(x=>x.id!==id):[...S.saved,b];saveSaved();renderHome();if(S.screen==='my_batches')renderMyBatches()})}
-async function searchBatches(reset=true){if(!S.key)return keyModal(true);if(reset){S.page=1;S.batches=[]}const q=$('batchSearch')?.value.trim()||'';$('allBatchList').innerHTML='<div class="empty">Searching batches…</div>';try{const d=await api('/batch/search/v2?cohortId=635b83410a47c70011ca5ffb&exam=UPSC&page='+S.page,false);const raw=arr(d,['batches','batchList','batch_list','results','items','docs']);const items=raw.map(x=>({id:ident(x),name:name(x),image:x.previewImage||x.thumbnail||x.image||'',language:x.lang||'',className:x.class||''})).filter(x=>x.id);const matches=q?items.filter(x=>(x.name+' '+x.id).toLowerCase().includes(q.toLowerCase())):items;S.batches=reset?matches:[...S.batches,...matches.filter(x=>!S.batches.some(y=>y.id===x.id))];S.totalPages=Number(d?.totalPages||d?.total_pages||d?.pagination?.totalPages||S.page);$('allBatchList').innerHTML=S.batches.length?S.batches.map(b=>batchCard(b)).join(''):'<div class="empty">No matching batches found.</div>';bindBatchCards();$('batchPageInfo').textContent='Page '+S.page+(S.totalPages>S.page?' · more available':'')}catch(e){$('allBatchList').innerHTML='<div class="empty">'+esc(e.message)+'</div>'}}
+function hasBatchIdentity(x){return !!(x&&typeof x==='object'&&(x._id||x.id||x.batchId||x.batch_id||x.batchID))}
+function extractBatchArray(value,depth=0,empty={value:null}){
+ if(depth>8||value==null)return null;
+ if(Array.isArray(value)){
+  if(value.length&&value.some(hasBatchIdentity))return value;
+  if(!value.length&&!empty.value)empty.value=value;
+  for(const item of value){const found=extractBatchArray(item,depth+1,empty);if(found)return found}
+  return null;
+ }
+ if(typeof value==='object'){
+  for(const key of ['batches','batchList','batch_list','results','items','docs']){
+   const nested=value[key];
+   if(Array.isArray(nested)&&nested.some(hasBatchIdentity))return nested;
+   const found=extractBatchArray(nested,depth+1,empty);if(found)return found;
+  }
+  for(const nested of Object.values(value)){const found=extractBatchArray(nested,depth+1,empty);if(found)return found}
+ }
+ return null;
+}
+function extractTotalPages(value,depth=0){
+ if(depth>8||!value||typeof value!=='object')return 0;
+ for(const [k,v] of Object.entries(value)){
+  if(['totalPages','total_pages','totalPage','total_page','pages'].includes(k.toLowerCase())&&Number(v)>0)return Number(v);
+  const found=extractTotalPages(v,depth+1);if(found)return found;
+ }
+ return 0;
+}
+function batchMatches(b,q){
+ const hay=(b.name+' '+b.id+' '+b.language+' '+b.className).toLowerCase();
+ const query=q.toLowerCase().trim();
+ if(!query)return true;
+ if(hay.includes(query))return true;
+ const tokens=query.split(/\\s+/).filter(Boolean);
+ return tokens.length>1&&tokens.every(t=>hay.includes(t));
+}
+function normalizeBatchResponse(d){
+ const raw=extractBatchArray(d)||[];
+ return raw.map(x=>({
+  id:String(x._id||x.id||x.batchId||x.batch_id||''),
+  name:x.name||x.title||x.batchName||'Unnamed batch',
+  image:x.previewImage||x.thumbnail||x.thumbnailUrl||x.thumbnail_url||x.image||'',
+  language:x.lang||x.language||'',
+  className:x.class||x.className||''
+ })).filter(x=>x.id);
+}
+async function searchBatches(reset=true){
+ if(!S.key)return keyModal(true);
+ if(reset){S.page=0;S.batches=[];S.totalPages=50}
+ const q=$('batchSearch')?.value.trim()||'';
+ $('allBatchList').innerHTML='<div class="empty">Searching batches…</div>';
+ try{
+  const start=S.page+1;
+  let reported=S.totalPages||50, scanned=0, found=[];
+  const budget=q?50:8;
+  let next=start;
+  while(next<=reported&&scanned<budget){
+   const groupEnd=Math.min(next+1,reported,start+budget-1);
+   const pages=await Promise.all(Array.from({length:groupEnd-next+1},(_,i)=>next+i).map(async p=>{
+    const d=await api('/batch/search/v2?cohortId=635b83410a47c70011ca5ffb&exam=UPSC&page='+p,S.key,false);
+    return {page:p,data:d,items:normalizeBatchResponse(d),total:extractTotalPages(d)};
+   }));
+   let stop=false;
+   for(const result of pages.sort((a,b)=>a.page-b.page)){
+    if(result.total)reported=result.total;
+    scanned++;
+    if(!result.items.length){stop=true;break}
+    const ids=new Set(S.batches.map(x=>x.id));
+    if(result.items.every(x=>ids.has(x.id))){stop=true;break}
+    found.push(...result.items.filter(x=>batchMatches(x,q)));
+    next=result.page+1;
+   }
+   if(stop)break;
+   next=groupEnd+1;
+  }
+  const seen=new Set(S.batches.map(x=>x.id));
+  S.batches=[...S.batches,...found.filter(x=>!seen.has(x.id)&&seen.add(x.id))];
+  S.page=Math.max(S.page,next-1);
+  S.totalPages=reported||S.page;
+  $('allBatchList').innerHTML=S.batches.length?S.batches.map(b=>batchCard(b)).join(''):'<div class="empty">No matching batches found. Try a shorter search.</div>';
+  bindBatchCards();
+  $('batchPageInfo').textContent='Scanned '+S.page+' / '+S.totalPages+' pages'+(q?' · filtered results':'');
+  $('nextBatchPage').disabled=S.page>=S.totalPages;
+  $('prevBatchPage').disabled=S.page===0;
+ }catch(e){$('allBatchList').innerHTML='<div class="empty">'+esc(e.message)+'</div>'}
+}
 function renderHome(){const active=S.batch;const last=JSON.parse(localStorage.getItem('abhi_pw_last_lesson')||'null'); $('activeBatchName').textContent=active?.name||'Choose a batch';$('homeSavedCount').textContent=S.saved.length+' saved batches';$('homeSubjectArea').innerHTML=active?'<button class="primary" id="continueBatch">Continue studying '+esc(active.name)+' →</button>':'<div class="empty">Add a batch to get started. Search All batches or add a batch ID.</div>';if($('continueBatch'))$('continueBatch').onclick=()=>loadSubjects();if(last){$('homeSubjectArea').innerHTML+='<button class="soft resumeLast" id="resumeLast">▶ Resume: '+esc(last.title||'Last lesson')+'</button>';$('resumeLast').onclick=resumeLastStudy;}$('homeBatchGrid').innerHTML=S.saved.length?S.saved.slice(0,4).map(b=>batchCard(b)).join(''):'<div class="empty">Your saved batches will appear here.</div>';bindBatchCards()}
 async function openBatch(b){S.batch=b;localStorage.setItem('abhi_pw_active_batch',JSON.stringify(b));S.subject=null;S.chapter=null;setScreen('subjects');$('subjectTitle').textContent=b.name;$('subjectsList').innerHTML='<div class="empty">Loading subjects…</div>';await loadSubjects()}
 async function loadSubjects(){if(!S.key)return keyModal(true);if(!S.batch){try{S.batch=JSON.parse(localStorage.getItem('abhi_pw_active_batch')||'null')}catch{} }if(!S.batch){toast('Choose a batch first');setScreen('all_batches');return}setScreen('subjects');$('subjectTitle').textContent=S.batch.name;$('subjectsList').innerHTML='<div class="empty">Loading subjects…</div>';try{const d=await api('/batch/'+S.batch.id+'/subject');S.subjects=arr(d,['subjects','data','items']).map(x=>({id:ident(x),title:name(x),raw:x})).filter(x=>x.id);renderSubjects()}catch(e){$('subjectsList').innerHTML='<div class="empty">'+esc(e.message)+'</div>'}}
@@ -33,21 +117,94 @@ function itemKey(x){return [S.batch?.id,S.subject?.id,S.chapter?.id,x.id].join('
 function renderContents(){$('contentsList').innerHTML=S.contents.length?S.contents.map((x,i)=>{const video=S.type==='videos'||S.type==='DppVideos';const done=S.downloads.some(d=>d.itemKey===itemKey(x));return '<div class="item"><span class="itemIcon">'+(video?'▶':'PDF')+'</span><span class="itemMain"><b>'+esc(x.title)+'</b><small>'+(video?'Video lecture':cat())+(done?' · Downloaded':'')+'</small></span><button class="soft" data-download="'+i+'">↓</button><button class="openItem" data-open="'+i+'">'+(video?'Play':'Open PDF')+'</button></div>'}).join(''):'<div class="empty">No learning material found for this category.</div>';document.querySelectorAll('[data-open]').forEach(e=>e.onclick=()=>{const x=S.contents[+e.dataset.open];if(S.type==='videos'||S.type==='DppVideos')playLecture(+e.dataset.open);else openResource(x)});document.querySelectorAll('[data-download]').forEach(e=>e.onclick=()=>downloadItem(S.contents[+e.dataset.download]))}
 async function getDetail(x){return await api('/batch/'+S.batch.id+'/subject/'+enc(S.subject.id)+'/chapter/'+enc(S.chapter.id)+'/content/'+enc(x.id))}
 async function playLecture(index){const x=S.contents[index];if(!x)return;S.current=index;localStorage.setItem('abhi_pw_last_lesson',JSON.stringify({batch:S.batch,subject:S.subject,chapter:S.chapter,itemId:x.id,title:x.title,type:S.type}));setScreen('player');$('playingTitle').textContent=x.title;$('playingSub').textContent=S.chapter.title;$('playerStatus').textContent='Preparing video…';$('video').pause();$('video').removeAttribute('src');$('video').load();$('video').classList.remove('hidden');$('playerPlaceholder').classList.remove('hidden');try{const d=await getDetail(x);S.stream=findUrl(d);if(!S.stream)throw Error('No video stream URL returned by the API');$('video').src='/video?url='+enc(S.stream);$('video').load();$('video').playbackRate=Number($('playbackSpeed').value||1);$('playerPlaceholder').classList.add('hidden');$('playerStatus').textContent='Ready';const savedProgress=JSON.parse(localStorage.getItem('abhi_pw_video_progress')||'{}');const resumeAt=Number(savedProgress[itemKey(x)]||0);if(resumeAt>5)$('video').currentTime=resumeAt;$('video').play().catch(()=>{});loadLectureResources()}catch(e){$('playerStatus').textContent=e.message;toast(e.message)}renderPlayerQueue()}
-function lectureNumber(title){let m=title.match(/\\b(?:lecture|lec)\\s*0*(\\d+)/i);if(m)return Number(m[1]);m=title.match(/(?<!\\d)0*(\\d+)\\s*:/);return m?Number(m[1]):null}
-function resourceMatchesLecture(title,no){const patterns=[/\\bof\\s+(?:lecture|lec)\\s*0*(\\d+)/i,/\\b(?:lecture|lec)\\s*0*(\\d+)/i,/\\b0*(\\d+)\\s*:\\s*(?:daily\\s+class\\s+notes|class\\s+notes)\\b/i,/\\bMains\\s+Questions?\\s*0*(\\d+)/i,/\\bDPP\\s+of\\s+Lec\\s*0*(\\d+)/i];for(const p of patterns){const m=title.match(p);if(m)return Number(m[1])===no}return false}
-async function loadLectureResources(){const x=S.contents[S.current];if(!x)return;const no=lectureNumber(x.title);if(no===null){$('playerResources').innerHTML='<p>No lecture number found for linked resources.</p>';return}const base='/batch/'+S.batch.id+'/subject/'+enc(S.subject.id)+'/chapter/'+enc(S.chapter.id)+'/content';try{const [n,d]=await Promise.all([api(base+'?type=notes').catch(()=>[]),api(base+'?type=DppNotes').catch(()=>[])]);S.resources=[...arr(n,['contents']).filter(v=>resourceMatchesLecture(name(v),no)).map(v=>({...v,_kind:'Notes'})),...arr(d,['contents']).filter(v=>resourceMatchesLecture(name(v),no)).map(v=>({...v,_kind:'DPP'}))];$('playerResources').innerHTML=S.resources.length?S.resources.map((r,i)=>'<div class="resource"><b>'+esc(name(r))+'</b><span>'+esc(r._kind)+'</span><button data-pr="'+i+'">Open</button><button data-prd="'+i+'">↓</button></div>').join(''):'<p>No linked notes or DPP resources for this lecture.</p>';document.querySelectorAll('[data-pr]').forEach(e=>e.onclick=()=>openResource(S.resources[+e.dataset.pr]));document.querySelectorAll('[data-prd]').forEach(e=>e.onclick=()=>downloadItem({id:ident(S.resources[+e.dataset.prd]),title:name(S.resources[+e.dataset.prd]),raw:S.resources[+e.dataset.prd]},S.resources[+e.dataset.prd]._kind,false))}catch(e){$('playerResources').textContent=e.message}}
+function lectureNumber(title){
+ let m=String(title||'').match(/\\b(?:lecture|lec)\\s*0*(\\d+)/i);
+ if(m)return Number(m[1]);
+ m=String(title||'').match(/(?<!\\d)0*(\\d+)\\s*:/);
+ return m?Number(m[1]):null;
+}
+function resourceMatchesLecture(title,no){
+ const patterns=[/\\bof\\s+(?:lecture|lec)\\s*0*(\\d+)/i,/\\b(?:lecture|lec)\\s*0*(\\d+)/i,/\\b0*(\\d+)\\s*:\\s*(?:daily\\s+class\\s+notes|class\\s+notes)\\b/i,/\\bMains\\s+Questions?\\s*0*(\\d+)/i,/\\bDPP\\s+of\\s+Lec\\s*0*(\\d+)/i];
+ for(const p of patterns){const m=String(title||'').match(p);if(m)return Number(m[1])===no}
+ return false;
+}
+async function loadLectureResources(){
+ const x=S.contents[S.current];if(!x)return;
+ const no=lectureNumber(x.title);
+ const base='/batch/'+S.batch.id+'/subject/'+enc(S.subject.id)+'/chapter/'+enc(S.chapter.id)+'/content';
+ $('playerResources').innerHTML='<p>Finding linked notes and DPP…</p>';
+ try{
+  const [n,d]=await Promise.all([api(base+'?type=notes'),api(base+'?type=DppNotes')]);
+  const notes=arr(n,['contents','notes','items','data']);
+  const dpps=arr(d,['contents','notes','items','data']);
+  const all=[...notes.map(v=>({...v,_kind:'Notes'})),...dpps.map(v=>({...v,_kind:'DPP'}))];
+  S.resources=no===null?all:all.filter(v=>resourceMatchesLecture(name(v),no));
+  $('playerResources').innerHTML=S.resources.length?S.resources.map((r,i)=>'<div class="resource"><b>'+esc(name(r))+'</b><span>'+esc(r._kind)+'</span><button data-pr="'+i+'">Open</button><button data-prd="'+i+'">↓</button></div>').join(''):'<p>No linked resources found for '+(no===null?'this chapter':'Lecture '+no)+'. Check the Notes and DPP tabs for all chapter materials.</p>';
+  document.querySelectorAll('[data-pr]').forEach(e=>e.onclick=()=>openResource(S.resources[+e.dataset.pr]));
+  document.querySelectorAll('[data-prd]').forEach(e=>e.onclick=()=>downloadItem({id:ident(S.resources[+e.dataset.prd]),title:name(S.resources[+e.dataset.prd]),raw:S.resources[+e.dataset.prd]},S.resources[+e.dataset.prd]._kind,false));
+ }catch(e){$('playerResources').innerHTML='<p>Could not load linked resources: '+esc(e.message)+'</p>'}
+}
 function openResource(x){const u=x.raw?.baseUrl||findUrl(x);if(!u)return toast('No PDF URL found');window.open(u,'_blank','noopener')}
 function renderPlayerQueue(){const x=S.contents[S.current];$('prevVideo').disabled=S.current>=S.contents.length-1;$('nextVideo').disabled=S.current<=0;$('playerPosition').textContent=(S.current+1)+' / '+S.contents.length;$('queueTitle').textContent=S.chapter?.title||'Lectures';$('playerQueue').innerHTML=S.contents.map((v,i)=>'<div class="lecture '+(i===S.current?'selected':'')+'" data-q="'+i+'"><span class="lectureNo">'+(i+1)+'</span><span><b>'+esc(v.title)+'</b><small>'+((i===S.current)?'Now playing':'Video lecture')+'</small></span></div>').join('');document.querySelectorAll('[data-q]').forEach(e=>e.onclick=()=>playLecture(+e.dataset.q))}
 async function downloadItem(x,categoryOverride='',videoOverride=null){const video=videoOverride===null?(S.type==='videos'||S.type==='DppVideos'):videoOverride;const category=categoryOverride||cat();let source=x.raw?.baseUrl||findUrl(x);try{if(video){const d=await getDetail(x);source=findUrl(d)}if(!source)throw Error('No download URL found');const filename=(x.title||'Study material').replace(/[\\/:*?"<>|]/g,'_')+(video?'.mp4':'.pdf');const task={id:Date.now()+Math.random(),title:x.title,category,filename,source,video,itemKey:itemKey(x),status:'Queued',progress:0};S.queue.push(task);saveQueue();renderQueue();processQueue()}catch(e){toast(e.message)}}
 function saveQueue(){localStorage.setItem('abhi_pw_queue',JSON.stringify(S.queue));localStorage.setItem('abhi_pw_downloads',JSON.stringify(S.downloads))}
-async function processQueue(){if(S.downloading)return;S.downloading=true;const limit=Number(localStorage.getItem('abhi_pw_parallel')||3);while(S.queue.length){const group=S.queue.splice(0,limit);for(const t of group){try{t.status='Sent to browser downloads';const u=t.video?'/download?url='+enc(t.source)+'&filename='+enc(t.filename):t.source;const a=document.createElement('a');a.href=u;a.download=t.filename;a.rel='noopener';document.body.appendChild(a);a.click();a.remove();S.downloads.unshift({...t,bytes:0,completed:Date.now()})}catch(e){t.status='Failed: '+e.message}}saveQueue();renderQueue();await new Promise(ok=>setTimeout(ok,700))}S.downloading=false;renderQueue()}
-function renderQueue(){$('queueList').innerHTML=S.queue.length?S.queue.map(t=>'<div class="queueItem"><div><b>'+esc(t.title)+'</b><small>'+esc(t.category)+' · '+esc(t.status)+'</small></div><button data-qcancel="'+t.id+'">×</button></div>').join(''):'<div class="empty">No active downloads.</div>';document.querySelectorAll('[data-qcancel]').forEach(e=>e.onclick=()=>{S.queue=S.queue.filter(t=>String(t.id)!==e.dataset.qcancel);saveQueue();renderQueue()});$('downloadCount').textContent=S.queue.length+' active'}
+async function processQueue(){
+ if(!window.studyDownloads){toast('Desktop download service is unavailable');return}
+ const limit=Number(localStorage.getItem('abhi_pw_parallel')||3);
+ const active=S.queue.filter(t=>['Starting','Downloading','Paused'].includes(t.status)).length;
+ const waiting=S.queue.filter(t=>t.status==='Queued');
+ for(const task of waiting.slice(0,Math.max(0,limit-active))){
+  task.status='Starting';saveQueue();renderQueue();
+  const url=task.video?'/download?url='+enc(task.source)+'&filename='+enc(task.filename):task.source;
+  try{await window.studyDownloads.start({id:String(task.id),url,filename:task.filename});task.status='Downloading'}
+  catch(e){task.status='Failed: '+(e.message||'Could not start');}
+ }
+ saveQueue();renderQueue();
+}
+function onDownloadProgress(data){
+ const task=S.queue.find(t=>String(t.id)===String(data.id));if(!task)return;
+ task.status=data.state==='progress'?'Downloading':task.status;
+ task.received=data.received||0;task.total=data.total||0;
+ task.progress=task.total?Math.min(99,Math.floor(task.received*100/task.total)):0;
+ renderQueue();saveQueue();
+}
+function onDownloadDone(data){
+ const i=S.queue.findIndex(t=>String(t.id)===String(data.id));if(i<0)return;
+ const [task]=S.queue.splice(i,1);
+ if(data.state==='completed'){
+  task.status='Completed';task.progress=100;task.bytes=data.received||data.total||0;task.completed=Date.now();task.savedPath=data.path||'';
+  S.downloads.unshift(task);toast('Downloaded: '+task.title);
+ }else{task.status='Failed';toast('Download failed: '+task.title+' ('+(data.error||data.state)+')')}
+ saveQueue();renderQueue();renderDownloads();processQueue();
+}
 function renderDownloads(){$('downloadHistory').innerHTML=S.downloads.length?S.downloads.map(d=>'<div class="item"><span class="itemIcon">'+(d.video?'▶':'PDF')+'</span><span class="itemMain"><b>'+esc(d.title)+'</b><small>'+esc(d.category)+' · '+(d.bytes?Math.round(d.bytes/1048576)+' MB':'Saved')+'</small></span><button class="soft" data-redownload="'+esc(d.id)+'">Download again</button></div>').join(''):'<div class="empty">No completed downloads recorded yet. Downloaded files are saved through your browser.</div>';document.querySelectorAll('[data-redownload]').forEach(e=>{const d=S.downloads.find(x=>String(x.id)===e.dataset.redownload);e.onclick=()=>{const a=document.createElement('a');a.href=d.video?('/download?url='+enc(d.source)+'&filename='+enc(d.filename)):d.source;a.download=d.filename;a.click()}})}
 function renderMyBatches(){$('myBatchList').innerHTML=S.saved.length?S.saved.map(b=>batchCard(b)).join(''):'<div class="empty">No saved batches. Find one in All batches.</div>';bindBatchCards()}
 async function resumeLastStudy(){const last=JSON.parse(localStorage.getItem('abhi_pw_last_lesson')||'null');if(!last)return;try{S.batch=last.batch;localStorage.setItem('abhi_pw_active_batch',JSON.stringify(S.batch));await loadSubjects();const sub=S.subjects.find(x=>x.id===last.subject.id);if(!sub)throw Error('Saved subject is no longer available');await openSubject(sub);const ch=S.chapters.find(x=>x.id===last.chapter.id);if(!ch)throw Error('Saved chapter is no longer available');await openChapter(ch,last.type||'videos');const index=S.contents.findIndex(x=>x.id===last.itemId);if(index<0)throw Error('Saved lecture is no longer available');await playLecture(index)}catch(e){toast('Could not resume: '+e.message)}}
 function back(){if(S.screen==='player')setScreen('contents');else if(S.screen==='contents')setScreen('chapters');else if(S.screen==='chapters')setScreen('subjects');else setScreen('home')}
 document.querySelectorAll('[data-nav]').forEach(e=>e.onclick=()=>{const s=e.dataset.nav;setScreen(s);if(s==='home')renderHome();if(s==='all_batches')searchBatches();if(s==='my_batches')renderMyBatches();if(s==='downloads')renderDownloads();if(s==='download_center')renderQueue()});
-$('settingsBtn').onclick=$('keyBtn').onclick=()=>setScreen('settings');$('openSettings').onclick=()=>{keyModal(false);setScreen('settings')};$('generate').onclick=generateKey;$('verify').onclick=verifyKey;$('backBtn').onclick=back;$('findBatches').onclick=()=>searchBatches();$('batchSearch').onkeydown=e=>{if(e.key==='Enter')searchBatches()};$('nextBatchPage').onclick=()=>{if(S.page<S.totalPages){S.page++;searchBatches(false)}};$('prevBatchPage').onclick=()=>{if(S.page>1){S.page--;searchBatches(false)}};$('addBatch').onclick=()=>{const id=$('manualBatchId').value.trim();if(!id)return;const b={id,name:'Batch '+id};S.saved=[...S.saved.filter(x=>x.id!==id),b];saveSaved();$('manualBatchId').value='';renderMyBatches();toast('Batch added')};$('refreshSubjects').onclick=loadSubjects;$('contentTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>loadContents(b.dataset.type));$('prevVideo').onclick=()=>playLecture(S.current+1);$('nextVideo').onclick=()=>playLecture(S.current-1);$('playbackSpeed').onchange=e=>{$('video').playbackRate=Number(e.target.value)};$('video').addEventListener('timeupdate',()=>{if(S.current>=0&&S.contents[S.current]){const p=JSON.parse(localStorage.getItem('abhi_pw_video_progress')||'{}');p[itemKey(S.contents[S.current])] = $('video').currentTime;localStorage.setItem('abhi_pw_video_progress',JSON.stringify(p))}});$('downloadCurrent').onclick=()=>{const x=S.contents[S.current];if(x)downloadItem(x)};$('clearQueue').onclick=()=>{S.queue=[];saveQueue();renderQueue()};$('parallelLimit').value=String(Number(localStorage.getItem('abhi_pw_parallel')||3));$('parallelLimit').onchange=e=>localStorage.setItem('abhi_pw_parallel',String(Math.max(1,Math.min(5,Number(e.target.value)))));$('refreshDownloads').onclick=renderDownloads;$('clearApiKey').onclick=()=>{S.key='';localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);$('apiKey').value='';$('keyStatus').textContent='Saved API key cleared.';toast('API key cleared')};$('clearHistory').onclick=()=>{S.downloads=[];saveQueue();renderDownloads()};
+$('settingsBtn').onclick=$('keyBtn').onclick=()=>setScreen('settings');$('openSettings').onclick=()=>{keyModal(false);setScreen('settings')};$('generate').onclick=generateKey;$('verify').onclick=verifyKey;$('backBtn').onclick=back;$('findBatches').onclick=()=>searchBatches();$('batchSearch').onkeydown=e=>{if(e.key==='Enter')searchBatches()};$('nextBatchPage').onclick=()=>{if(S.page<S.totalPages){S.page++;searchBatches(false)}};$('prevBatchPage').onclick=()=>{if(S.page>1){S.page--;searchBatches(false)}};$('addBatch').onclick=()=>{const id=$('manualBatchId').value.trim();if(!id)return;const b={id,name:'Batch '+id};S.saved=[...S.saved.filter(x=>x.id!==id),b];saveSaved();$('manualBatchId').value='';renderMyBatches();toast('Batch added')};$('refreshSubjects').onclick=loadSubjects;$('contentTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>loadContents(b.dataset.type));$('prevVideo').onclick=()=>playLecture(S.current+1);$('nextVideo').onclick=()=>playLecture(S.current-1);$('playbackSpeed').onchange=e=>{video.playbackRate=Number(e.target.value)};const video=$('video'),playerBox=document.querySelector('.video');
+function fmtTime(seconds){if(!Number.isFinite(seconds)||seconds<0)return '0:00';const s=Math.floor(seconds);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+function syncPlayerUI(){
+ const duration=Number.isFinite(video.duration)?video.duration:0;
+ $('seekBar').max=duration||0;$('seekBar').value=video.currentTime||0;
+ $('timeCurrent').textContent=fmtTime(video.currentTime);$('timeDuration').textContent=fmtTime(duration);
+ $('togglePlay').textContent=video.paused?'▶':'Ⅱ';$('centerPlay').textContent=video.paused?'▶':'Ⅱ';
+ $('muteToggle').textContent=(video.muted||video.volume===0)?'🔇':'🔊';
+ $('volumeBar').value=video.muted?0:video.volume;
+ playerBox.classList.toggle('playing',!video.paused);
+}
+video.addEventListener('timeupdate',()=>{syncPlayerUI();if(S.current>=0&&S.contents[S.current]){const p=JSON.parse(localStorage.getItem('abhi_pw_video_progress')||'{}');p[itemKey(S.contents[S.current])] = video.currentTime;localStorage.setItem('abhi_pw_video_progress',JSON.stringify(p))}});
+['loadedmetadata','durationchange','play','pause','volumechange','waiting','canplay'].forEach(ev=>video.addEventListener(ev,syncPlayerUI));
+$('togglePlay').onclick=$('centerPlay').onclick=()=>video.paused?video.play().catch(()=>{}):video.pause();
+$('seekBack').onclick=()=>video.currentTime=Math.max(0,video.currentTime-10);
+$('seekForward').onclick=()=>video.currentTime=Math.min(video.duration||Infinity,video.currentTime+10);
+$('seekBar').oninput=e=>{if(Number.isFinite(video.duration))video.currentTime=Number(e.target.value)};
+$('volumeBar').oninput=e=>{video.volume=Number(e.target.value);video.muted=video.volume===0};
+$('muteToggle').onclick=()=>{video.muted=!video.muted;syncPlayerUI()};
+$('fullScreen').onclick=()=>{if(!document.fullscreenElement)playerBox.requestFullscreen?.();else document.exitFullscreen?.()};
+syncPlayerUI();
+$('downloadCurrent').onclick=()=>{const x=S.contents[S.current];if(x)downloadItem(x)};$('clearQueue').onclick=()=>{S.queue=[];saveQueue();renderQueue()};$('parallelLimit').value=String(Number(localStorage.getItem('abhi_pw_parallel')||3));$('parallelLimit').onchange=e=>localStorage.setItem('abhi_pw_parallel',String(Math.max(1,Math.min(5,Number(e.target.value)))));$('refreshDownloads').onclick=renderDownloads;$('clearApiKey').onclick=()=>{S.key='';localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);$('apiKey').value='';$('keyStatus').textContent='Saved API key cleared.';toast('API key cleared')};$('clearHistory').onclick=()=>{S.downloads=[];saveQueue();renderDownloads()};
 loadSaved();try{S.queue=JSON.parse(localStorage.getItem('abhi_pw_queue')||'[]');S.downloads=JSON.parse(localStorage.getItem('abhi_pw_downloads')||'[]')}catch{}renderQueue();
+if(window.studyDownloads){window.studyDownloads.onProgress(onDownloadProgress);window.studyDownloads.onDone(onDownloadDone);}
 const saved=localStorage.getItem('abhi_pw_key'),expiry=Number(localStorage.getItem('abhi_pw_expiry')||0);if(saved&&expiry>Date.now()){S.key=saved;if($('apiKey'))$('apiKey').value=saved;connected(true);try{S.batch=JSON.parse(localStorage.getItem('abhi_pw_active_batch')||'null')}catch{}renderHome()}else{localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);keyModal(true)}
 })();
