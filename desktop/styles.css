@@ -25,3 +25,7 @@
 .downloadTrack i{display:block;height:100%;background:linear-gradient(90deg,#8c7ce5,#c0b4ff);border-radius:10px;transition:width .18s}
 .downloadPercent{font-size:10px;color:#c5baff;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
 .queueItem button{background:#393452;color:#d4cbff;border-radius:7px;padding:7px 10px;font-size:10px;white-space:nowrap}
+
+.video.playing:not(.showHud) .playerHud{opacity:0;pointer-events:none}
+.video.playing:not(.showHud) .centerPlay{opacity:0;pointer-events:none}
+.video.showHud .playerHud{opacity:1;pointer-events:auto}
