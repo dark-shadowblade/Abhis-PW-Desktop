@@ -17,3 +17,11 @@
 .video:fullscreen .playerHud{padding:38px 28px 22px}
 .video:fullscreen .centerPlay{width:76px;height:76px}
 @media(max-width:680px){.playerHud{padding:25px 9px 8px}.hudButtons{gap:5px}.hudButtons button{min-width:32px;padding:0 7px}.hudButtons input{width:65px}.seekRow{gap:6px}}
+
+.queueItem{align-items:center;margin:10px 0;padding:13px;border:1px solid var(--line)}
+.queueInfo{flex:1;min-width:0}
+.queueInfo>b{display:block;font-size:12px;overflow-wrap:anywhere}
+.downloadTrack{height:5px;background:#111722;border-radius:10px;overflow:hidden;margin-top:9px}
+.downloadTrack i{display:block;height:100%;background:linear-gradient(90deg,#8c7ce5,#c0b4ff);border-radius:10px;transition:width .18s}
+.downloadPercent{font-size:10px;color:#c5baff;min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
+.queueItem button{background:#393452;color:#d4cbff;border-radius:7px;padding:7px 10px;font-size:10px;white-space:nowrap}
