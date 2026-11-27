@@ -151,7 +151,7 @@ function saveQueue(){localStorage.setItem('abhi_pw_queue',JSON.stringify(S.queue
 async function processQueue(){
  if(!window.studyDownloads){toast('Desktop download service is unavailable');return}
  const limit=Number(localStorage.getItem('abhi_pw_parallel')||3);
- const active=S.queue.filter(t=>['Starting','Downloading','Paused'].includes(t.status)).length;
+ const active=S.queue.filter(t=>['Starting','Downloading'].includes(t.status)).length;
  const waiting=S.queue.filter(t=>t.status==='Queued');
  for(const task of waiting.slice(0,Math.max(0,limit-active))){
   task.status='Starting';saveQueue();renderQueue();
@@ -177,7 +177,17 @@ function onDownloadDone(data){
  }else{task.status='Failed';toast('Download failed: '+task.title+' ('+(data.error||data.state)+')')}
  saveQueue();renderQueue();renderDownloads();processQueue();
 }
-function renderDownloads(){$('downloadHistory').innerHTML=S.downloads.length?S.downloads.map(d=>'<div class="item"><span class="itemIcon">'+(d.video?'▶':'PDF')+'</span><span class="itemMain"><b>'+esc(d.title)+'</b><small>'+esc(d.category)+' · '+(d.bytes?Math.round(d.bytes/1048576)+' MB':'Saved')+'</small></span><button class="soft" data-redownload="'+esc(d.id)+'">Download again</button></div>').join(''):'<div class="empty">No completed downloads recorded yet. Downloaded files are saved through your browser.</div>';document.querySelectorAll('[data-redownload]').forEach(e=>{const d=S.downloads.find(x=>String(x.id)===e.dataset.redownload);e.onclick=()=>{const a=document.createElement('a');a.href=d.video?('/download?url='+enc(d.source)+'&filename='+enc(d.filename)):d.source;a.download=d.filename;a.click()}})}
+function renderQueue(){
+ $('queueList').innerHTML=S.queue.length?S.queue.map(t=>{
+  const progress=Number(t.progress||0),active=['Starting','Downloading','Paused'].includes(t.status);
+  return '<div class="queueItem"><div class="queueInfo"><b>'+esc(t.title)+'</b><small>'+esc(t.category)+' · '+esc(t.status)+(t.total?' · '+Math.round((t.received||0)/1048576)+' / '+Math.round(t.total/1048576)+' MB':'')+'</small><div class="downloadTrack"><i style="width:'+progress+'%"></i></div></div><span class="downloadPercent">'+progress+'%</span>'+(t.status==='Paused'?'<button data-qresume="'+esc(t.id)+'">Resume</button>':active?'<button data-qpause="'+esc(t.id)+'">Pause</button>':'')+'<button data-qcancel="'+esc(t.id)+'">×</button></div>';
+ }).join(''):'<div class="empty">No active downloads.</div>';
+ document.querySelectorAll('[data-qcancel]').forEach(e=>e.onclick=()=>{const id=e.dataset.qcancel;window.studyDownloads?.cancel(id);S.queue=S.queue.filter(t=>String(t.id)!==id);saveQueue();renderQueue();processQueue()});
+ document.querySelectorAll('[data-qpause]').forEach(e=>e.onclick=async()=>{await window.studyDownloads?.pause(e.dataset.qpause);const t=S.queue.find(x=>String(x.id)===e.dataset.qpause);if(t)t.status='Paused';saveQueue();renderQueue();processQueue()});
+ document.querySelectorAll('[data-qresume]').forEach(e=>e.onclick=async()=>{await window.studyDownloads?.resume(e.dataset.qresume);const t=S.queue.find(x=>String(x.id)===e.dataset.qresume);if(t)t.status='Downloading';saveQueue();renderQueue()});
+ $('downloadCount').textContent=S.queue.length+' active';
+}
+function renderDownloads(){$('downloadHistory').innerHTML=S.downloads.length?S.downloads.map(d=>'<div class="item"><span class="itemIcon">'+(d.video?'▶':'PDF')+'</span><span class="itemMain"><b>'+esc(d.title)+'</b><small>'+esc(d.category)+' · '+(d.bytes?Math.round(d.bytes/1048576)+' MB':'Saved')+'</small></span><button class="soft" data-redownload="'+esc(d.id)+'">Download again</button></div>').join(''):'<div class="empty">No completed downloads recorded yet. Downloaded files are saved through your browser.</div>';document.querySelectorAll('[data-redownload]').forEach(e=>{const d=S.downloads.find(x=>String(x.id)===e.dataset.redownload);e.onclick=()=>{S.queue.push({...d,id:Date.now()+Math.random(),status:'Queued',progress:0,received:0,total:0});saveQueue();renderQueue();processQueue()}})}
 function renderMyBatches(){$('myBatchList').innerHTML=S.saved.length?S.saved.map(b=>batchCard(b)).join(''):'<div class="empty">No saved batches. Find one in All batches.</div>';bindBatchCards()}
 async function resumeLastStudy(){const last=JSON.parse(localStorage.getItem('abhi_pw_last_lesson')||'null');if(!last)return;try{S.batch=last.batch;localStorage.setItem('abhi_pw_active_batch',JSON.stringify(S.batch));await loadSubjects();const sub=S.subjects.find(x=>x.id===last.subject.id);if(!sub)throw Error('Saved subject is no longer available');await openSubject(sub);const ch=S.chapters.find(x=>x.id===last.chapter.id);if(!ch)throw Error('Saved chapter is no longer available');await openChapter(ch,last.type||'videos');const index=S.contents.findIndex(x=>x.id===last.itemId);if(index<0)throw Error('Saved lecture is no longer available');await playLecture(index)}catch(e){toast('Could not resume: '+e.message)}}
 function back(){if(S.screen==='player')setScreen('contents');else if(S.screen==='contents')setScreen('chapters');else if(S.screen==='chapters')setScreen('subjects');else setScreen('home')}
@@ -191,7 +201,7 @@ function syncPlayerUI(){
  $('togglePlay').textContent=video.paused?'▶':'Ⅱ';$('centerPlay').textContent=video.paused?'▶':'Ⅱ';
  $('muteToggle').textContent=(video.muted||video.volume===0)?'🔇':'🔊';
  $('volumeBar').value=video.muted?0:video.volume;
- playerBox.classList.toggle('playing',!video.paused);
+ playerBox.classList.toggle('playing',!video.paused);playerBox.classList.toggle('paused',video.paused);
 }
 video.addEventListener('timeupdate',()=>{syncPlayerUI();if(S.current>=0&&S.contents[S.current]){const p=JSON.parse(localStorage.getItem('abhi_pw_video_progress')||'{}');p[itemKey(S.contents[S.current])] = video.currentTime;localStorage.setItem('abhi_pw_video_progress',JSON.stringify(p))}});
 ['loadedmetadata','durationchange','play','pause','volumechange','waiting','canplay'].forEach(ev=>video.addEventListener(ev,syncPlayerUI));
@@ -203,7 +213,7 @@ $('volumeBar').oninput=e=>{video.volume=Number(e.target.value);video.muted=video
 $('muteToggle').onclick=()=>{video.muted=!video.muted;syncPlayerUI()};
 $('fullScreen').onclick=()=>{if(!document.fullscreenElement)playerBox.requestFullscreen?.();else document.exitFullscreen?.()};
 syncPlayerUI();
-$('downloadCurrent').onclick=()=>{const x=S.contents[S.current];if(x)downloadItem(x)};$('clearQueue').onclick=()=>{S.queue=[];saveQueue();renderQueue()};$('parallelLimit').value=String(Number(localStorage.getItem('abhi_pw_parallel')||3));$('parallelLimit').onchange=e=>localStorage.setItem('abhi_pw_parallel',String(Math.max(1,Math.min(5,Number(e.target.value)))));$('refreshDownloads').onclick=renderDownloads;$('clearApiKey').onclick=()=>{S.key='';localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);$('apiKey').value='';$('keyStatus').textContent='Saved API key cleared.';toast('API key cleared')};$('clearHistory').onclick=()=>{S.downloads=[];saveQueue();renderDownloads()};
+$('downloadCurrent').onclick=()=>{const x=S.contents[S.current];if(x)downloadItem(x)};$('clearQueue').onclick=()=>{S.queue.forEach(t=>window.studyDownloads?.cancel(String(t.id)));S.queue=[];saveQueue();renderQueue()};$('parallelLimit').value=String(Number(localStorage.getItem('abhi_pw_parallel')||3));$('parallelLimit').onchange=e=>localStorage.setItem('abhi_pw_parallel',String(Math.max(1,Math.min(5,Number(e.target.value)))));$('refreshDownloads').onclick=renderDownloads;$('clearApiKey').onclick=()=>{S.key='';localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);$('apiKey').value='';$('keyStatus').textContent='Saved API key cleared.';toast('API key cleared')};$('clearHistory').onclick=()=>{S.downloads=[];saveQueue();renderDownloads()};
 loadSaved();try{S.queue=JSON.parse(localStorage.getItem('abhi_pw_queue')||'[]');S.downloads=JSON.parse(localStorage.getItem('abhi_pw_downloads')||'[]')}catch{}renderQueue();
 if(window.studyDownloads){window.studyDownloads.onProgress(onDownloadProgress);window.studyDownloads.onDone(onDownloadDone);}
 const saved=localStorage.getItem('abhi_pw_key'),expiry=Number(localStorage.getItem('abhi_pw_expiry')||0);if(saved&&expiry>Date.now()){S.key=saved;if($('apiKey'))$('apiKey').value=saved;connected(true);try{S.batch=JSON.parse(localStorage.getItem('abhi_pw_active_batch')||'null')}catch{}renderHome()}else{localStorage.removeItem('abhi_pw_key');localStorage.removeItem('abhi_pw_expiry');connected(false);keyModal(true)}
