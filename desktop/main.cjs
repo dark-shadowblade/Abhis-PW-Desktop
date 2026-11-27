@@ -78,18 +78,33 @@ async function createWindow() {
   });
   ipcMain.handle('download:pause', (_event, id) => {
     const task = activeDownloads.get(String(id));
-    if (task && task.item.getState() === 'progressing' && !task.item.isPaused()) task.item.pause();
-    return { ok: !!task };
+    if (!task || task.item.getState() !== 'progressing' || task.item.isPaused()) return { ok: false };
+    task.item.pause();
+    return { ok: true };
   });
   ipcMain.handle('download:resume', (_event, id) => {
     const task = activeDownloads.get(String(id));
-    if (task && task.item.isPaused() && task.item.canResume()) task.item.resume();
-    return { ok: !!task };
+    if (!task || !task.item.isPaused() || !task.item.canResume()) return { ok: false };
+    task.item.resume();
+    return { ok: true };
   });
-  ipcMain.handle('download:cancel', (_event, id) => {
-    const task = activeDownloads.get(String(id));
-    if (task && !['completed', 'cancelled'].includes(task.item.getState())) task.item.cancel();
-    return { ok: !!task };
+  ipcMain.handle('download:cancel', (event, id) => {
+    const key = String(id);
+    const task = activeDownloads.get(key);
+    if (task && !['completed', 'cancelled'].includes(task.item.getState())) {
+      task.item.cancel();
+      return { ok: true };
+    }
+    // A task can be cancelled before Chromium emits will-download.
+    const queue = pendingDownloads.get(event.sender.id) || [];
+    const index = queue.findIndex(entry => entry.id === key);
+    if (index >= 0) {
+      queue.splice(index, 1);
+      if (queue.length) pendingDownloads.set(event.sender.id, queue);
+      else pendingDownloads.delete(event.sender.id);
+      return { ok: true };
+    }
+    return { ok: false };
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
