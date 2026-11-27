@@ -87,10 +87,9 @@ async function searchBatches(reset=true){
  try{
   const start=S.page+1;
   let reported=S.totalPages||50, scanned=0, found=[];
-  const budget=q?50:8;
   let next=start;
-  while(next<=reported&&scanned<budget){
-   const groupEnd=Math.min(next+1,reported,start+budget-1);
+  while(next<=reported&&scanned<(q?reported:8)){
+   const groupEnd=Math.min(next+1,reported,start+(q?reported:8)-1);
    const pages=await Promise.all(Array.from({length:groupEnd-next+1},(_,i)=>next+i).map(async p=>{
     const d=await api('/batch/search/v2?cohortId=635b83410a47c70011ca5ffb&exam=UPSC&page='+p,S.key,false);
     return {page:p,data:d,items:normalizeBatchResponse(d),total:extractTotalPages(d)};
