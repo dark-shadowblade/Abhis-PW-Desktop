@@ -170,7 +170,14 @@ async function loadLectureResources(){
   document.querySelectorAll('[data-prd]').forEach(e=>e.onclick=()=>downloadItem({id:ident(S.resources[+e.dataset.prd]),title:name(S.resources[+e.dataset.prd]),raw:S.resources[+e.dataset.prd]},S.resources[+e.dataset.prd]._kind,false));
  }catch(e){$('playerResources').innerHTML='<p>Could not load linked resources: '+esc(e.message)+'</p>'}
 }
-function openResource(x){const u=x.raw?.baseUrl||findUrl(x);if(!u)return toast('No PDF URL found');window.open(u,'_blank','noopener')}
+function openResource(x){
+ const u=x.raw?.baseUrl||findUrl(x);
+ if(!u)return toast('No PDF URL found');
+ // Open external resource URLs in the system browser in Electron; on Pages
+ // this falls back to a normal browser tab.
+ if(window.studyDownloads)window.open(u,'_blank','noopener');
+ else window.open(u,'_blank','noopener');
+}
 function renderPlayerQueue(){const x=S.contents[S.current];$('prevVideo').disabled=S.current>=S.contents.length-1;$('nextVideo').disabled=S.current<=0;$('playerPosition').textContent=(S.current+1)+' / '+S.contents.length;$('queueTitle').textContent=S.chapter?.title||'Lectures';$('playerQueue').innerHTML=S.contents.map((v,i)=>'<div class="lecture '+(i===S.current?'selected':'')+'" data-q="'+i+'"><span class="lectureNo">'+(i+1)+'</span><span><b>'+esc(v.title)+'</b><small>'+((i===S.current)?'Now playing':'Video lecture')+'</small></span></div>').join('');document.querySelectorAll('[data-q]').forEach(e=>e.onclick=()=>playLecture(+e.dataset.q))}
 async function downloadItem(x,categoryOverride='',videoOverride=null){const video=videoOverride===null?(S.type==='videos'||S.type==='DppVideos'):videoOverride;const category=categoryOverride||cat();let source=x.raw?.baseUrl||findUrl(x);try{if(video){const d=await getDetail(x);source=findUrl(d)}if(!source)throw Error('No download URL found');const filename=(x.title||'Study material').replace(/[\\/:*?"<>|]/g,'_')+(video?'.mp4':'.pdf');const task={id:Date.now()+Math.random(),title:x.title,category,filename,source,video,itemKey:itemKey(x),status:'Queued',progress:0};S.queue.push(task);saveQueue();renderQueue();processQueue()}catch(e){toast(e.message)}}
 function saveQueue(){localStorage.setItem('abhi_pw_queue',JSON.stringify(S.queue));localStorage.setItem('abhi_pw_downloads',JSON.stringify(S.downloads))}
@@ -181,7 +188,11 @@ async function processQueue(){
  const waiting=S.queue.filter(t=>t.status==='Queued');
  for(const task of waiting.slice(0,Math.max(0,limit-active))){
   task.status='Starting';saveQueue();renderQueue();
-  const url=task.video?'/download?url='+enc(task.source)+'&filename='+enc(task.filename):task.source;
+  // Electron's downloadURL requires an absolute URL. Video downloads must go
+  // through the bundled local range-proxy, not a relative /download path.
+  const url=task.video
+   ?'http://127.0.0.1:4173/download?url='+enc(task.source)+'&filename='+enc(task.filename)
+   :task.source;
   try{await window.studyDownloads.start({id:String(task.id),url,filename:task.filename});task.status='Downloading'}
   catch(e){task.status='Failed: '+(e.message||'Could not start');}
  }
