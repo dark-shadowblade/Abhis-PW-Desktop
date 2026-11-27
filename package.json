@@ -1,12 +1,11 @@
 {
   "name": "abhis-pw-desktop",
   "version": "0.1.0",
-  "description": "Abhi's PW study app with browser and Electron versions",
+  "description": "Abhi's PW study app with Electron desktop and frontend-only GitHub Pages website",
   "main": "desktop/main.cjs",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "web": "node web/server.cjs",
     "build": "electron-builder --win nsis --publish never"
   },
   "devDependencies": {
@@ -16,9 +15,24 @@
   "build": {
     "appId": "com.abhispw.desktop",
     "productName": "Abhi's PW",
-    "directories": { "output": "dist" },
-    "files": ["desktop/**/*", "server/**/*", "web/**/*", "package.json"],
-    "win": { "target": ["nsis"], "artifactName": "Abhis-PW-Setup-${version}.${ext}" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "server/**/*",
+      "web/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "Abhis-PW-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }
